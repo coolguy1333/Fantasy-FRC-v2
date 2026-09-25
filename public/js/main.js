@@ -7,9 +7,7 @@ import { initBracketView } from "./views/bracket.js";
 import { initScoreView } from "./views/score.js";
 import { initLeaderboardView } from "./views/leaderboard.js";
 import { initAdminView } from "./views/admin.js";
-import { maybeShowOnboarding } from "./views/teams.js";
-
-window.showTab = showTab;
+import { maybeShowOnboarding, completeOnboarding, skipOnboarding, joinTeamByCode } from "./views/teams.js";
 
 function renderHeaderProfile() {
   const wrap = $("headerProfileWrap");
@@ -34,11 +32,48 @@ function renderAuthPanel() {
   }
 }
 
+function renderSyncStatus() {
+  const banner = $("serverStatusBanner");
+  if (!banner) return;
+  if (!store.syncError) {
+    banner.classList.add("hidden");
+    return;
+  }
+  banner.classList.remove("hidden");
+  banner.className = "notice notice-error";
+  banner.textContent =
+    store.syncError === "session_expired"
+      ? "Your sign-in expired. Sign in again to keep syncing predictions - anything made since is only saved on this device until you do."
+      : "Couldn't save your last change to the server. Retrying - your predictions are safe on this device in the meantime.";
+}
+
+function wireNav() {
+  document.querySelectorAll(".nav-btn[data-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => showTab(btn.dataset.tab, btn));
+  });
+}
+
+function wireMobileNav() {
+  const nav = $("mainNav");
+  const hamburger = $("navHamburger");
+  if (!nav || !hamburger) return;
+  hamburger.addEventListener("click", () => {
+    const open = nav.classList.toggle("nav-open");
+    hamburger.classList.toggle("is-open", open);
+  });
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("#mainNav .nav-btn")) {
+      nav.classList.remove("nav-open");
+      hamburger.classList.remove("is-open");
+    }
+  });
+}
+
 function wireHeaderProfileMenu() {
   const btn = $("headerProfileBtn");
   const panel = $("headerProfilePanel");
   if (!btn || !panel) return;
-  window.toggleHeaderProfileMenu = (e) => {
+  btn.addEventListener("click", (e) => {
     e.stopPropagation();
     panel.classList.toggle("hidden");
     if (!panel.classList.contains("hidden")) {
@@ -49,20 +84,20 @@ function wireHeaderProfileMenu() {
       const signOutBtn = document.createElement("button");
       signOutBtn.className = "secondary-btn";
       signOutBtn.textContent = "Sign out";
-      signOutBtn.onclick = () => {
+      signOutBtn.addEventListener("click", () => {
         signOut();
         panel.classList.add("hidden");
-      };
+      });
       panel.append(name, signOutBtn);
     }
-  };
+  });
   document.addEventListener("click", () => panel.classList.add("hidden"));
 }
 
 function wireFeedbackForm() {
   const form = $("feedbackForm");
   if (!form) return;
-  window.submitFeedbackForm = (e) => {
+  form.addEventListener("submit", (e) => {
     e.preventDefault();
     const name = $("feedbackName").value.trim();
     const contact = $("feedbackContact").value.trim();
@@ -80,13 +115,25 @@ function wireFeedbackForm() {
           notice("feedbackNotice", "Could not send feedback. Sign in first.", "error");
         }
       });
-  };
+  });
+}
+
+function wireOnboardingModal() {
+  $("onboardingSaveBtn")?.addEventListener("click", completeOnboarding);
+  $("onboardingSkipBtn")?.addEventListener("click", skipOnboarding);
 }
 
 function wireTeamInviteLink() {
   const params = new URLSearchParams(window.location.search);
   const inviteCode = params.get("team");
   if (!inviteCode) return;
+
+  $("teamInviteJoinBtn")?.addEventListener("click", () => {
+    joinTeamByCode(inviteCode);
+    closeModal("teamInviteConfirmModal");
+  });
+  $("teamInviteDeclineBtn")?.addEventListener("click", () => closeModal("teamInviteConfirmModal"));
+
   const unsubscribe = store.subscribe(() => {
     if (!store.user) return;
     $("teamInviteConfirmCode").textContent = `Code: ${inviteCode}`;
@@ -96,19 +143,11 @@ function wireTeamInviteLink() {
     openModal("teamInviteConfirmModal");
     unsubscribe();
   });
-  window.confirmPendingTeamInviteJoin = () => {
-    import("./views/teams.js").then(({ joinTeamByCode }) => {
-      joinTeamByCode(inviteCode);
-      closeModal("teamInviteConfirmModal");
-    });
-  };
-  window.declinePendingTeamInviteJoin = () => closeModal("teamInviteConfirmModal");
 }
 
 async function boot() {
   const config = await api.runtimeConfig().catch(() => ({}));
   document.querySelector('meta[name="app-version"]')?.setAttribute("content", config.appVersion || "dev");
-  document.querySelector('meta[name="google-signin-client_id"]')?.setAttribute("content", config.googleClientId || "");
 
   initAuth(config.googleClientId, {
     onSignIn: () => {
@@ -121,6 +160,7 @@ async function boot() {
   store.subscribe(() => {
     renderHeaderProfile();
     renderAuthPanel();
+    renderSyncStatus();
   });
 
   initMatchesView();
@@ -128,12 +168,16 @@ async function boot() {
   initScoreView();
   initLeaderboardView();
   initAdminView();
+  wireNav();
+  wireMobileNav();
   wireHeaderProfileMenu();
   wireFeedbackForm();
+  wireOnboardingModal();
   wireTeamInviteLink();
 
   renderHeaderProfile();
   renderAuthPanel();
+  renderSyncStatus();
 }
 
 boot();

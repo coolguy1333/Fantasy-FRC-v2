@@ -17,17 +17,17 @@
   <header>
     <div class="header-inner">
       <div class="logo"><img class="site-logo" src="images/FFRC.png" alt="FFRC Logo" /></div>
-      <button class="nav-hamburger" id="navHamburger" onclick="toggleMobileNav()" aria-label="Toggle menu">
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
         <span></span><span></span><span></span>
       </button>
       <nav id="mainNav">
-        <button class="nav-btn active" id="nav-matches" onclick="showTab('matchesTab', this)">Matches</button>
-        <button class="nav-btn" id="nav-score" onclick="showTab('scoreTab', this)">My Score</button>
-        <button class="nav-btn" id="nav-leaderboard" onclick="showTab('leaderboardTab', this)">Leaderboard</button>
-        <button class="nav-btn hidden" id="nav-admin" onclick="showTab('adminTab', this)">Admin</button>
+        <button class="nav-btn active" id="nav-matches" data-tab="matchesTab">Matches</button>
+        <button class="nav-btn" id="nav-score" data-tab="scoreTab">My Score</button>
+        <button class="nav-btn" id="nav-leaderboard" data-tab="leaderboardTab">Leaderboard</button>
+        <button class="nav-btn hidden" id="nav-admin" data-tab="adminTab">Admin</button>
       </nav>
       <div class="header-profile hidden" id="headerProfileWrap">
-        <button id="headerProfileBtn" class="header-profile-btn" onclick="toggleHeaderProfileMenu(event)"><span id="headerProfileInitial">G</span></button>
+        <button id="headerProfileBtn" class="header-profile-btn"><span id="headerProfileInitial">G</span></button>
         <div id="headerProfilePanel" class="header-profile-panel hidden"></div>
       </div>
     </div>
@@ -56,6 +56,7 @@
     <div id="eventBar" class="event-bar">
       <select id="eventRegionSelect"><option value="">Select this week's event (sorted by country/state)</option></select>
     </div>
+    <div id="serverStatusBanner" class="notice hidden"></div>
     <div id="eventHelp" class="event-help notice">Events load automatically. Choose one from the sorted dropdown (country/state) to load matches.</div>
     <div id="predictionGuide" class="prediction-guide">
       <strong>How Predictions Work:</strong> Pick the winning alliance (Red/Blue) and optionally guess the winner's score. Match predictions lock <strong>10 minutes before that match starts</strong>. In the playoff bracket, pick winners to advance through each round and predict each match's winning score.
@@ -120,8 +121,8 @@
       </div>
       <div class="admin-row"><input id="onboardingTeamNumber" class="admin-input" placeholder="Your team number (optional)" /></div>
       <div class="admin-row">
-        <button class="load-btn" onclick="completeOnboarding()">Save</button>
-        <button class="secondary-btn" onclick="skipOnboarding()">Skip Team</button>
+        <button class="load-btn" id="onboardingSaveBtn">Save</button>
+        <button class="secondary-btn" id="onboardingSkipBtn">Skip Team</button>
       </div>
       <div id="onboardingError" class="notice hidden"></div>
     </div>
@@ -134,8 +135,8 @@
       <div id="teamInviteConfirmName" class="invite-confirm-team-name">Team</div>
       <div id="teamInviteConfirmCode" class="invite-confirm-team-code"></div>
       <div class="admin-row">
-        <button class="load-btn" onclick="confirmPendingTeamInviteJoin()">Join Team</button>
-        <button class="secondary-btn" onclick="declinePendingTeamInviteJoin()">Cancel</button>
+        <button class="load-btn" id="teamInviteJoinBtn">Join Team</button>
+        <button class="secondary-btn" id="teamInviteDeclineBtn">Cancel</button>
       </div>
     </div>
   </div>
@@ -144,7 +145,7 @@
     <div class="site-footer-inner">
       <div class="footer-feedback">
         <h3>Quick Feedback</h3>
-        <form id="feedbackForm" class="footer-form" onsubmit="submitFeedbackForm(event)">
+        <form id="feedbackForm" class="footer-form">
           <input id="feedbackName" type="text" class="footer-input" placeholder="Name (optional)" />
           <input id="feedbackContact" type="text" class="footer-input" placeholder="Email or contact (optional)" />
           <textarea id="feedbackMessage" class="footer-input footer-textarea" placeholder="Share an idea or bug..." required></textarea>
@@ -157,19 +158,5 @@
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script type="module" src="js/main.js"></script>
-  <script>
-    function toggleMobileNav() {
-      const nav = document.getElementById('mainNav');
-      const btn = document.getElementById('navHamburger');
-      const open = nav.classList.toggle('nav-open');
-      btn.classList.toggle('is-open', open);
-    }
-    document.addEventListener('click', function (e) {
-      if (e.target.closest('#mainNav .nav-btn')) {
-        document.getElementById('mainNav').classList.remove('nav-open');
-        document.getElementById('navHamburger').classList.remove('is-open');
-      }
-    });
-  </script>
 </body>
 </html>

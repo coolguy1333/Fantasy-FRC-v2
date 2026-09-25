@@ -1,11 +1,16 @@
 import { store } from "../store.js";
 import { $, el, notice, openModal, closeModal } from "../ui.js";
 
-function genCode() {
+function genCode(existingCodes) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 5; i += 1) code += chars[Math.floor(Math.random() * chars.length)];
-  return code;
+  const taken = new Set(Object.values(existingCodes || {}).map((c) => String(c).toUpperCase()));
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    let code = "";
+    for (let i = 0; i < 5; i += 1) code += chars[Math.floor(Math.random() * chars.length)];
+    if (!taken.has(code)) return code;
+  }
+  // Astronomically unlikely with 50 attempts at 32^5 possibilities, but never hand out a duplicate.
+  throw new Error("could_not_generate_unique_code");
 }
 
 function findTeamByCode(code) {
@@ -16,7 +21,7 @@ function findTeamByCode(code) {
 
 export function createTeam(name) {
   const teamId = `team_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  const code = genCode();
+  const code = genCode(store.state.teamInviteCodes);
   store.mutate((state) => {
     state.groups[teamId] = { name, createdAt: Date.now() };
     state.teamInviteCodes[teamId] = code;
@@ -37,7 +42,6 @@ export function joinTeamByCode(code) {
 
 export function completeOnboarding() {
   const mode = document.querySelector('input[name="setupMode"]:checked')?.value;
-  const errorNode = $("onboardingError");
   notice("onboardingError", "");
 
   if (mode === "join") {
@@ -48,7 +52,11 @@ export function completeOnboarding() {
   } else if (mode === "create") {
     const name = $("onboardingTeamName").value.trim();
     if (!name) return notice("onboardingError", "Enter a team name.", "error");
-    createTeam(name);
+    try {
+      createTeam(name);
+    } catch {
+      return notice("onboardingError", "Could not create a team right now. Try again.", "error");
+    }
   }
 
   const number = $("onboardingTeamNumber").value.trim();
@@ -88,6 +96,3 @@ document.addEventListener("change", (e) => {
     $("createTeamRow")?.classList.toggle("hidden", e.target.value !== "create");
   }
 });
-
-window.completeOnboarding = completeOnboarding;
-window.skipOnboarding = skipOnboarding;

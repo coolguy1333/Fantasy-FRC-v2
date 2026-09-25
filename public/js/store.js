@@ -2,6 +2,8 @@ import { api, setAuthToken } from "./api.js";
 import { GUEST_PROFILE_ID, POLL_INTERVAL_MS } from "./constants.js";
 
 const GUEST_STORAGE_KEY = "ffrc_guest_state_v1";
+const RETRY_BASE_MS = 5000;
+const RETRY_MAX_MS = 60000;
 
 function emptyState() {
   return {
@@ -52,6 +54,16 @@ class Store {
     this._pollHandle = null;
     this._saveInFlight = null;
     this._saveQueued = false;
+    this._retryHandle = null;
+    this._retryDelay = RETRY_BASE_MS;
+
+    // dirty = true means this.state has local changes the server hasn't
+    // confirmed yet. While dirty, polling must never overwrite this.state -
+    // that would silently discard whatever the user just did.
+    this.dirty = false;
+    // null | "session_expired" | "save_failed" - surfaced by the UI so a
+    // failed save is never just silent.
+    this.syncError = null;
   }
 
   get profileId() {
@@ -72,7 +84,14 @@ class Store {
     const result = await api.verifyGoogle(idToken);
     this.user = result.user;
     this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
-    await this.loadRemote();
+    if (this.dirty) {
+      // There's a local change from before this sign-in (e.g. the previous
+      // token expired mid-session) - push it rather than pulling the server's
+      // version over it and losing it.
+      await this._persistRemote();
+    } else {
+      await this.loadRemote();
+    }
     this.startPolling();
     return this.user;
   }
@@ -81,6 +100,9 @@ class Store {
     setAuthToken(null);
     this.user = null;
     this.isGlobalAdmin = false;
+    this.dirty = false;
+    this.syncError = null;
+    this._clearRetry();
     this.stopPolling();
     this.state = loadGuestState();
     this.emit();
@@ -89,11 +111,15 @@ class Store {
   enterGuestMode() {
     this.user = null;
     setAuthToken(null);
+    this.dirty = false;
+    this.syncError = null;
+    this._clearRetry();
     this.state = loadGuestState();
     this.emit();
   }
 
   async loadRemote() {
+    if (this.dirty) return; // never clobber an unsaved local change
     const { payload, updatedAt } = await api.getState();
     this.state = payload;
     this.updatedAt = updatedAt;
@@ -103,7 +129,7 @@ class Store {
   startPolling() {
     this.stopPolling();
     this._pollHandle = setInterval(() => {
-      if (!this.user || this._saveInFlight) return;
+      if (!this.user || this._saveInFlight || this.dirty) return;
       this.loadRemote().catch(() => {});
     }, POLL_INTERVAL_MS);
   }
@@ -111,6 +137,12 @@ class Store {
   stopPolling() {
     if (this._pollHandle) clearInterval(this._pollHandle);
     this._pollHandle = null;
+  }
+
+  _clearRetry() {
+    if (this._retryHandle) clearTimeout(this._retryHandle);
+    this._retryHandle = null;
+    this._retryDelay = RETRY_BASE_MS;
   }
 
   // Apply `mutator(state)` locally, re-render immediately, then persist.
@@ -122,6 +154,7 @@ class Store {
       saveGuestState(this.state);
       return { ok: true };
     }
+    this.dirty = true;
     return this._persistRemote();
   }
 
@@ -134,8 +167,15 @@ class Store {
       try {
         const result = await api.putState(this.state);
         this.updatedAt = result.updatedAt;
+        this.dirty = false;
+        this.syncError = null;
+        this._clearRetry();
+        this.emit();
         return { ok: true };
       } catch (err) {
+        this.syncError = err?.status === 401 ? "session_expired" : "save_failed";
+        this.emit();
+        this._scheduleRetry();
         return { ok: false, error: err };
       } finally {
         this._saveInFlight = null;
@@ -146,6 +186,15 @@ class Store {
       }
     })();
     return this._saveInFlight;
+  }
+
+  _scheduleRetry() {
+    if (this._retryHandle) return; // already scheduled
+    this._retryHandle = setTimeout(() => {
+      this._retryHandle = null;
+      this._retryDelay = Math.min(this._retryDelay * 2, RETRY_MAX_MS);
+      if (this.user && this.dirty) this._persistRemote();
+    }, this._retryDelay);
   }
 }
 

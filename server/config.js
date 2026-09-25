@@ -17,6 +17,11 @@ const dataDir = process.env.FF_DATA_DIR
 module.exports = {
   host: process.env.HOST || "0.0.0.0",
   port: Number(process.env.PORT || 3000),
+  // Only true when actually deployed behind a reverse proxy (nginx, Caddy,
+  // Cloudflare...) that overwrites X-Forwarded-* itself. If false (the safe
+  // default for a bare LXC exposed directly), a client can't spoof its own
+  // IP and bypass the per-IP rate limits by forging X-Forwarded-For.
+  trustProxy: bool(process.env.TRUST_PROXY, false),
   dataDir,
   dbPath: path.join(dataDir, "fantasyfrc.db"),
   publicDir: path.join(__dirname, "..", "public"),

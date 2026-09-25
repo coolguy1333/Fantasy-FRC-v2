@@ -148,4 +148,5 @@ public/
 | `PORT` | No | `3000` | Bind port |
 | `FF_DATA_DIR` | No | `./data` | Directory holding `fantasyfrc.db` |
 | `REQUIRE_HTTPS` | No | `false` | Reject non-HTTPS requests (except loopback) |
+| `TRUST_PROXY` | No | `false` | Only set `true` if a reverse proxy sits in front and sets `X-Forwarded-*` itself - otherwise those headers are client-controlled and this must stay `false` |
 | `LOCAL_API_ONLY` | No | `false` | Block non-loopback API access |

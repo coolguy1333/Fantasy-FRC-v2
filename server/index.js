@@ -6,7 +6,7 @@ const { securityHeaders, enforceTransport, enforceLocalApiOnly } = require("./se
 
 const app = express();
 
-app.set("trust proxy", true);
+app.set("trust proxy", config.trustProxy);
 app.disable("x-powered-by");
 
 app.use(securityHeaders);

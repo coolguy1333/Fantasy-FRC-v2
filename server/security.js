@@ -31,7 +31,11 @@ function securityHeaders(_req, res, next) {
 
 function enforceTransport(req, res, next) {
   if (!config.requireHttps) return next();
-  const proto = req.headers["x-forwarded-proto"] || req.protocol;
+  // Only consult X-Forwarded-Proto when we're actually behind a trusted
+  // reverse proxy (config.trustProxy) - a client can set this header to
+  // whatever it wants, so trusting it without a real proxy in front would
+  // let plain HTTP traffic claim to be HTTPS and bypass this check entirely.
+  const proto = config.trustProxy ? req.headers["x-forwarded-proto"] || req.protocol : req.protocol;
   if (proto === "https" || isLoopback(req.socket.remoteAddress)) return next();
   res.status(400).json({ error: "https_required" });
 }
