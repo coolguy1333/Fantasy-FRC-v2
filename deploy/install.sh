@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fantasy FRC installer - designed for a fresh Debian/Ubuntu Proxmox LXC.
-# Run as root: sudo ./deploy/install.sh
+# Run as root: ./deploy/install.sh (or "sudo ./deploy/install.sh" if you're
+# not already root - most fresh LXCs log in as root and don't have sudo).
 #
 # What it does:
 #   1. Installs Node.js 20 + build tools (needed to compile better-sqlite3)
@@ -23,17 +24,16 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "==> Installing Node.js and build tools"
+echo "==> Installing Node.js, rsync, and build tools"
+apt-get update -y
+apt-get install -y rsync build-essential python3
 if ! command -v node >/dev/null 2>&1 || [[ "$(node -v | sed 's/v//' | cut -d. -f1)" -lt 18 ]]; then
-  apt-get update -y
-  apt-get install -y ca-certificates curl gnupg build-essential python3
+  apt-get install -y ca-certificates curl gnupg
   mkdir -p /etc/apt/keyrings
   curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
   apt-get update -y
   apt-get install -y nodejs
-else
-  apt-get install -y build-essential python3 >/dev/null
 fi
 
 echo "==> Creating service user"
