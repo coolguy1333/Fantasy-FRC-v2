@@ -109,6 +109,14 @@ npm run dev
 
 Serves on `http://127.0.0.1:3000`.
 
+## Documentation
+
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) - how it's put together: request
+  flow, the shared-state data model, the authorization model, and known
+  limitations.
+- [`docs/API.md`](./docs/API.md) - full REST API reference.
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) - local setup and what to check before a PR.
+
 ## Architecture
 
 ```
