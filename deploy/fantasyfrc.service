@@ -1,0 +1,25 @@
+[Unit]
+Description=Fantasy FRC
+After=network.target
+
+[Service]
+Type=simple
+User=fantasyfrc
+Group=fantasyfrc
+WorkingDirectory=/opt/fantasyfrc
+EnvironmentFile=/opt/fantasyfrc/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/fantasyfrc/server/index.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Light sandboxing - safe defaults for an app that only needs its own dir + network.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/fantasyfrc/data
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fantasy FRC</title>
+  <link rel="icon" type="image/png" href="images/FFRCSquare.png" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;1,500;1,600;1,700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <meta name="app-version" content="" />
+  <meta name="google-signin-client_id" content="" />
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="logo"><img class="site-logo" src="images/FFRC.png" alt="FFRC Logo" /></div>
+      <button class="nav-hamburger" id="navHamburger" onclick="toggleMobileNav()" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+      <nav id="mainNav">
+        <button class="nav-btn active" id="nav-matches" onclick="showTab('matchesTab', this)">Matches</button>
+        <button class="nav-btn" id="nav-score" onclick="showTab('scoreTab', this)">My Score</button>
+        <button class="nav-btn" id="nav-leaderboard" onclick="showTab('leaderboardTab', this)">Leaderboard</button>
+        <button class="nav-btn hidden" id="nav-admin" onclick="showTab('adminTab', this)">Admin</button>
+      </nav>
+      <div class="header-profile hidden" id="headerProfileWrap">
+        <button id="headerProfileBtn" class="header-profile-btn" onclick="toggleHeaderProfileMenu(event)"><span id="headerProfileInitial">G</span></button>
+        <div id="headerProfilePanel" class="header-profile-panel hidden"></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <section class="auth-panel">
+      <div class="auth-copy">
+        <span class="auth-kicker">Player Profile</span>
+        <h2>Sign in with Google for the full experience</h2>
+        <p>You can predict as a guest, or sign in to unlock leaderboard, teams, and admin features.</p>
+      </div>
+      <div class="auth-actions"><div id="googleSignInHost" class="google-signin-host"></div></div>
+    </section>
+
+    <section id="prePredictScreen" class="signedout-page hidden">
+      <div class="signedout-card">
+        <img class="signedout-logo" src="images/FFRCSquare.png" alt="Logo" />
+        <span class="auth-kicker">Fantasy FRC</span>
+        <h2>Guest Mode Enabled</h2>
+        <p>Predict matches without signing in, or use Google to unlock leaderboard, team, and admin tools.</p>
+        <div id="googleGateHost" class="google-signin-host"></div>
+      </div>
+    </section>
+
+    <div id="eventBar" class="event-bar">
+      <select id="eventRegionSelect"><option value="">Select this week's event (sorted by country/state)</option></select>
+    </div>
+    <div id="eventHelp" class="event-help notice">Events load automatically. Choose one from the sorted dropdown (country/state) to load matches.</div>
+    <div id="predictionGuide" class="prediction-guide">
+      <strong>How Predictions Work:</strong> Pick the winning alliance (Red/Blue) and optionally guess the winner's score. Match predictions lock <strong>10 minutes before that match starts</strong>. In the playoff bracket, pick winners to advance through each round and predict each match's winning score.
+    </div>
+
+    <div id="matchesTab" class="tab-panel">
+      <div id="playoffBracket"></div>
+      <div id="currentMatches"></div>
+      <div id="upcomingMatches"></div>
+      <div id="previousMatches"></div>
+    </div>
+
+    <div id="scoreTab" class="tab-panel hidden">
+      <div class="score-grid">
+        <div class="score-card accent"><span class="score-label">Total Points</span><span class="score-value" id="points">0</span></div>
+        <div class="score-card"><span class="score-label">Streak Bonus</span><span class="score-value" id="streakBonus">-</span></div>
+        <div class="score-card"><span class="score-label">Predictions Made</span><span class="score-value" id="totalPredictions">0</span></div>
+        <div class="score-card"><span class="score-label">Matches Completed</span><span class="score-value" id="completedMatches">0</span></div>
+        <div class="score-card"><span class="score-label">Accuracy</span><span class="score-value" id="accuracy">-</span></div>
+        <div class="score-card"><span class="score-label">Current Streak</span><span class="score-value" id="currentStreak">0</span></div>
+        <div class="score-card"><span class="score-label">Longest Streak</span><span class="score-value" id="longestStreak">0</span></div>
+      </div>
+      <div class="streak-info-bar">Get <strong>3 correct alliance picks in a row</strong> to activate streak mode. Score <strong>+1 point within 5</strong> or <strong>+0.5 within 25</strong>.</div>
+      <div class="accuracy-bar-wrap">
+        <div class="accuracy-bar-label">Prediction Accuracy</div>
+        <div class="accuracy-track"><div class="accuracy-fill" id="accuracyFill"></div></div>
+      </div>
+    </div>
+
+    <div id="leaderboardTab" class="tab-panel hidden">
+      <div class="leaderboard-shell">
+        <div class="leaderboard-summary"><span class="leaderboard-kicker">Standings</span><h2>Leaderboard</h2></div>
+        <div class="leaderboard-filters" id="leaderboardFilters"></div>
+        <div id="leaderboardContent"></div>
+      </div>
+    </div>
+
+    <div id="adminTab" class="tab-panel hidden">
+      <div class="admin-shell">
+        <div class="leaderboard-summary"><span class="leaderboard-kicker">Admin</span><h2>Admin Panel</h2></div>
+        <div id="adminAccessNotice" class="notice hidden"></div>
+        <div id="adminPanel"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="onboardingModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <h3>Finish Account Setup</h3>
+      <p>Join an existing team with its 5-character code, or create your own team.</p>
+      <div class="admin-row">
+        <label><input type="radio" name="setupMode" value="join" checked /> Join Team</label>
+        <label><input type="radio" name="setupMode" value="create" /> Create Team</label>
+        <label><input type="radio" name="setupMode" value="skip" /> Continue Without Team</label>
+      </div>
+      <div id="joinTeamRow" class="admin-row">
+        <input id="onboardingTeamCode" class="admin-input" maxlength="5" list="onboardingTeamCodeList" placeholder="Enter 5-character team code" />
+        <datalist id="onboardingTeamCodeList"></datalist>
+      </div>
+      <div id="createTeamRow" class="admin-row hidden">
+        <input id="onboardingTeamName" class="admin-input" placeholder="New team name" />
+      </div>
+      <div class="admin-row"><input id="onboardingTeamNumber" class="admin-input" placeholder="Your team number (optional)" /></div>
+      <div class="admin-row">
+        <button class="load-btn" onclick="completeOnboarding()">Save</button>
+        <button class="secondary-btn" onclick="skipOnboarding()">Skip Team</button>
+      </div>
+      <div id="onboardingError" class="notice hidden"></div>
+    </div>
+  </div>
+
+  <div id="teamInviteConfirmModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <h3>Join Team</h3>
+      <p>You opened a team invite link. Confirm before your account is added to this team.</p>
+      <div id="teamInviteConfirmName" class="invite-confirm-team-name">Team</div>
+      <div id="teamInviteConfirmCode" class="invite-confirm-team-code"></div>
+      <div class="admin-row">
+        <button class="load-btn" onclick="confirmPendingTeamInviteJoin()">Join Team</button>
+        <button class="secondary-btn" onclick="declinePendingTeamInviteJoin()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div class="footer-feedback">
+        <h3>Quick Feedback</h3>
+        <form id="feedbackForm" class="footer-form" onsubmit="submitFeedbackForm(event)">
+          <input id="feedbackName" type="text" class="footer-input" placeholder="Name (optional)" />
+          <input id="feedbackContact" type="text" class="footer-input" placeholder="Email or contact (optional)" />
+          <textarea id="feedbackMessage" class="footer-input footer-textarea" placeholder="Share an idea or bug..." required></textarea>
+          <button type="submit" class="secondary-btn">Send Feedback</button>
+        </form>
+        <div id="feedbackNotice" class="notice hidden"></div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script type="module" src="js/main.js"></script>
+  <script>
+    function toggleMobileNav() {
+      const nav = document.getElementById('mainNav');
+      const btn = document.getElementById('navHamburger');
+      const open = nav.classList.toggle('nav-open');
+      btn.classList.toggle('is-open', open);
+    }
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('#mainNav .nav-btn')) {
+        document.getElementById('mainNav').classList.remove('nav-open');
+        document.getElementById('navHamburger').classList.remove('is-open');
+      }
+    });
+  </script>
+</body>
+</html>
