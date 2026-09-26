@@ -10,7 +10,12 @@ function csv(value) {
   return String(value || "").split(",").map((v) => v.trim()).filter(Boolean);
 }
 
-const dataDir = process.env.FF_DATA_DIR
+// DATA_DIR is what a WebManager-style host sets (always /data, always
+// writable); FF_DATA_DIR is the older self-hosted (systemd/LXC) variable.
+// Prefer DATA_DIR when both are present.
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : process.env.FF_DATA_DIR
   ? path.resolve(process.env.FF_DATA_DIR)
   : path.join(__dirname, "..", "data");
 
