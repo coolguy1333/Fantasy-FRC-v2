@@ -1,0 +1,40 @@
+{
+  "type": "app",
+  "health": "/api/health",
+  "memory_mb": 256,
+  "env": [
+    {
+      "name": "TBA_API_KEY",
+      "description": "The Blue Alliance API key, used to fetch live event/match data. Get one free at thebluealliance.com/account. Leave blank to disable live event data.",
+      "secret": true,
+      "required": false
+    },
+    {
+      "name": "GOOGLE_CLIENT_ID",
+      "description": "Google OAuth web client ID, used for Google sign-in. Leave blank to run guest-only, with no sign-in.",
+      "required": false
+    },
+    {
+      "name": "GLOBAL_ADMIN_EMAILS",
+      "description": "Comma-separated email addresses to bootstrap as global admin on first run.",
+      "required": false
+    },
+    {
+      "name": "GLOBAL_ADMIN_IDS",
+      "description": "Comma-separated Google account 'sub' IDs to bootstrap as global admin on first run.",
+      "required": false
+    },
+    {
+      "name": "REQUIRE_HTTPS",
+      "description": "Reject non-HTTPS requests. Safe to leave on since the app always sits behind the platform's HTTPS reverse proxy.",
+      "default": "true",
+      "choices": ["true", "false"]
+    },
+    {
+      "name": "LOCAL_API_ONLY",
+      "description": "Block all non-loopback API access. Rarely needed - leave false for normal use.",
+      "default": "false",
+      "choices": ["true", "false"]
+    }
+  ]
+}

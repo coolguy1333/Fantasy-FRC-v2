@@ -70,6 +70,21 @@ Predictions and bracket picks lock 10 minutes before the match starts.
 Optional: put nginx + a real domain + HTTPS in front using
 `deploy/nginx.conf.example`, then set `REQUIRE_HTTPS=true` in `.env`.
 
+## Deploying as a Docker/WebManager app
+
+The repo also includes a `Dockerfile` and `webmanager.json`, so it can be
+deployed to any Docker host or a WebManager-style platform without the
+systemd/LXC setup above. The container reads `TBA_API_KEY`,
+`GOOGLE_CLIENT_ID`, `GLOBAL_ADMIN_EMAILS`, `GLOBAL_ADMIN_IDS`,
+`REQUIRE_HTTPS`, and `LOCAL_API_ONLY` from the environment (see
+`webmanager.json`); `PORT`, `HOST`, `DATA_DIR`, and `TRUST_PROXY` are set by
+the platform and don't need configuring. To run it manually:
+
+```bash
+docker build -t fantasyfrc .
+docker run -p 8080:8080 -e PORT=8080 -e DATA_DIR=/data -v fantasyfrc-data:/data fantasyfrc
+```
+
 ### Updating later
 
 ```bash
@@ -154,7 +169,8 @@ public/
 | `GLOBAL_ADMIN_IDS` | No | - | Comma-separated Google `sub` IDs bootstrapped as global admin |
 | `HOST` | No | `0.0.0.0` | Bind host |
 | `PORT` | No | `3000` | Bind port |
-| `FF_DATA_DIR` | No | `./data` | Directory holding `fantasyfrc.db` |
+| `FF_DATA_DIR` | No | `./data` | Directory holding `fantasyfrc.db` (self-hosted deploys) |
+| `DATA_DIR` | No | - | Same as `FF_DATA_DIR`, takes priority if both are set (used by Docker/WebManager deploys) |
 | `REQUIRE_HTTPS` | No | `false` | Reject non-HTTPS requests (except loopback) |
 | `TRUST_PROXY` | No | `false` | Only set `true` if a reverse proxy sits in front and sets `X-Forwarded-*` itself - otherwise those headers are client-controlled and this must stay `false` |
 | `LOCAL_API_ONLY` | No | `false` | Block non-loopback API access |

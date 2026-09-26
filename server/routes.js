@@ -1,6 +1,6 @@
 const express = require("express");
 const config = require("./config");
-const { readState, writeState, integrityCheck } = require("./db");
+const { readState, writeState } = require("./db");
 const { normalizeState, validateState } = require("./state/schema");
 const { checkAuthorization, isGlobalAdmin } = require("./state/authorize");
 const { verifyGoogleIdToken, requireAuth } = require("./auth");
@@ -33,15 +33,11 @@ router.get("/runtime-config", (_req, res) => {
   });
 });
 
-router.get("/health", limiters.read, auth, (_req, res) => {
-  const db = integrityCheck();
-  res.json({
-    ok: db.ok,
-    dbIntegrity: db,
-    authConfigured: Boolean(config.googleClientId),
-    tbaConfigured: Boolean(config.tbaApiKey),
-    ...counters
-  });
+// Liveness check for monitoring / the host's health probe - must stay
+// unauthenticated (docs/API.md documents it that way) and cheap, since a
+// probe hits it repeatedly with no credentials.
+router.get("/health", limiters.read, (_req, res) => {
+  res.json({ ok: true });
 });
 
 router.get("/state", limiters.read, auth, (_req, res) => {
