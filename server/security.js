@@ -20,9 +20,13 @@ function securityHeaders(_req, res, next) {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "same-origin");
+  if (config.requireHttps) res.setHeader("Strict-Transport-Security", "max-age=15552000");
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; " +
+      "img-src 'self' data: https:; " +
+      // accounts.google.com/gsi/style is the stylesheet Google One Tap injects.
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style; " +
       "font-src 'self' https://fonts.gstatic.com; script-src 'self' https://accounts.google.com; " +
       "connect-src 'self' https://accounts.google.com; frame-src https://accounts.google.com"
   );
@@ -35,12 +39,10 @@ function enforceTransport(req, res, next) {
   // (no proxy, not loopback), so it must not be rejected. The endpoint returns
   // nothing sensitive.
   if (req.path === "/api/health") return next();
-  // Only consult X-Forwarded-Proto when we're actually behind a trusted
-  // reverse proxy (config.trustProxy) - a client can set this header to
-  // whatever it wants, so trusting it without a real proxy in front would
-  // let plain HTTP traffic claim to be HTTPS and bypass this check entirely.
-  const proto = config.trustProxy ? req.headers["x-forwarded-proto"] || req.protocol : req.protocol;
-  if (proto === "https" || isLoopback(req.socket.remoteAddress)) return next();
+  // req.protocol only honours X-Forwarded-Proto when "trust proxy" is set (and
+  // then reads just the first value of a comma-separated list), so a client
+  // can't claim to be HTTPS when there's no trusted proxy in front.
+  if (req.protocol === "https" || isLoopback(req.socket.remoteAddress)) return next();
   res.status(400).json({ error: "https_required" });
 }
 
@@ -52,15 +54,22 @@ function enforceLocalApiOnly(req, res, next) {
 
 // PUT /api/state must come from a same-origin browser request, not a
 // cross-site script acting on a signed-in user's behalf.
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
 function requireSameOrigin(req, res, next) {
   const origin = req.headers.origin;
   if (!origin) return next(); // same-origin requests may omit Origin
-  const host = req.headers.host;
-  try {
-    if (new URL(origin).host === host) return next();
-  } catch {
-    // fall through to reject
-  }
+  const originHost = hostOf(origin);
+  const allowed = [req.headers.host, hostOf(config.publicUrl)];
+  // A trusted proxy may rewrite Host but tells us the original in X-Forwarded-Host.
+  if (config.trustProxy) allowed.push(String(req.headers["x-forwarded-host"] || "").split(",")[0].trim());
+  if (originHost && allowed.includes(originHost)) return next();
   res.status(403).json({ error: "cross_origin_request_denied" });
 }
 

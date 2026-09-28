@@ -60,13 +60,35 @@ function normalizeState(raw) {
   return out;
 }
 
+const MAX_NAME = 100;
+const MAX_CONTACT = 200;
+const MAX_MESSAGE = 2000;
+const MAX_FEEDBACK = 5000;
+
+function tooLong(value, max) {
+  return value !== undefined && value !== null && (typeof value !== "string" || value.length > max);
+}
+
 function validateState(state) {
   for (const key of DOMAINS) {
     if (!(key in state)) return { ok: false, error: `missing_domain:${key}` };
   }
   if (Object.keys(state).length !== DOMAINS.length) return { ok: false, error: "unexpected_domain_present" };
-  if (state.feedback.length > 5000) return { ok: false, error: "feedback_too_large" };
+  if (state.feedback.length > MAX_FEEDBACK) return { ok: false, error: "feedback_too_large" };
+  for (const [id, profile] of Object.entries(state.profiles)) {
+    if (profile && typeof profile === "object" && (tooLong(profile.name, MAX_NAME) || tooLong(profile.teamNumber, 20))) {
+      return { ok: false, error: `profile_field_too_long:${id}` };
+    }
+  }
+  for (const [id, group] of Object.entries(state.groups)) {
+    if (group && typeof group === "object" && tooLong(group.name, MAX_NAME)) return { ok: false, error: `team_name_too_long:${id}` };
+  }
+  for (const item of state.feedback) {
+    if (!item || typeof item !== "object" || tooLong(item.name, MAX_NAME) || tooLong(item.contact, MAX_CONTACT) || tooLong(item.message, MAX_MESSAGE)) {
+      return { ok: false, error: "feedback_entry_invalid" };
+    }
+  }
   return { ok: true };
 }
 
-module.exports = { DOMAINS, emptyState, normalizeState, validateState };
+module.exports = { DOMAINS, emptyState, normalizeState, validateState, MAX_NAME, MAX_CONTACT, MAX_MESSAGE, MAX_FEEDBACK };

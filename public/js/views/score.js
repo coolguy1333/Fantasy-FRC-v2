@@ -1,5 +1,6 @@
 import { $ } from "../ui.js";
 import { store } from "../store.js";
+import { STREAK_THRESHOLD, STREAK_BONUS } from "../constants.js";
 import { currentScoreSummary } from "./matches.js";
 import { currentBracketSummary } from "./bracket.js";
 
@@ -15,7 +16,7 @@ function render() {
   const totalPoints = Math.round((match.points + bracket.points) * 10) / 10;
 
   set("points", totalPoints);
-  set("streakBonus", match.currentStreak >= 3 ? `+${0.5} / pick` : "-");
+  set("streakBonus", match.currentStreak >= STREAK_THRESHOLD ? `+${STREAK_BONUS} / pick` : "-");
   set("totalPredictions", match.total);
   set("completedMatches", match.graded);
   set("accuracy", match.accuracy === null ? "-" : `${match.accuracy}%`);

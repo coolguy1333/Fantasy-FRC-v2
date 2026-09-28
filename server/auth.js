@@ -8,9 +8,11 @@ async function verifyGoogleIdToken(idToken) {
   const ticket = await client.verifyIdToken({ idToken, audience: config.googleClientId });
   const payload = ticket.getPayload();
   if (!payload || !payload.sub) throw new Error("invalid_token");
+  // An unverified email claim can be set by whoever created the Google account,
+  // so it must never count towards admin bootstrapping.
   return {
     sub: payload.sub,
-    email: payload.email || "",
+    email: payload.email && payload.email_verified === true ? payload.email : "",
     name: payload.name || "",
     picture: payload.picture || ""
   };

@@ -17,7 +17,6 @@ app.disable("x-powered-by");
 
 app.use(securityHeaders);
 app.use(enforceTransport);
-app.use(express.json({ limit: "1mb" }));
 
 app.use("/api", enforceLocalApiOnly, apiRoutes);
 
@@ -31,8 +30,21 @@ app.use((req, res, next) => {
 
 app.use(express.static(config.publicDir, { dotfiles: "deny" }));
 
-app.get("*", (_req, res) => {
+// SPA fallback - but only for page navigations. A missing script/stylesheet
+// should be a 404, not an HTML page that fails with a confusing MIME error.
+app.get("*", (req, res) => {
+  if (path.extname(req.path)) return res.status(404).end();
   res.sendFile(path.join(config.publicDir, "index.html"));
+});
+
+app.use((err, _req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = Number(err.status || err.statusCode);
+  if (status >= 400 && status < 500) {
+    return res.status(status).json({ error: status === 413 ? "payload_too_large" : "bad_request" });
+  }
+  console.error(err);
+  res.status(500).json({ error: "server_error" });
 });
 
 const server = app.listen(config.port, config.host, () => {

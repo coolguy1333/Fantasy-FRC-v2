@@ -8,13 +8,14 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "NODE_ENV=development node server/index.js",
-    "check": "node --check server/index.js"
+    "check": "node --check server/index.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",
-    "google-auth-library": "^9.14.1"
+    "google-auth-library": "^10.9.1"
   }
 }

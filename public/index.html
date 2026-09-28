@@ -10,14 +10,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;1,500;1,600;1,700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <meta name="app-version" content="" />
-  <meta name="google-signin-client_id" content="" />
-</head>
+  </head>
 <body>
 
   <header>
     <div class="header-inner">
       <div class="logo"><img class="site-logo" src="images/FFRC.png" alt="FFRC Logo" /></div>
-      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu" aria-controls="mainNav">
         <span></span><span></span><span></span>
       </button>
       <nav id="mainNav">
@@ -34,6 +33,7 @@
   </header>
 
   <div class="container">
+    <div id="authNotice" class="notice hidden" role="alert"></div>
     <section class="auth-panel">
       <div class="auth-copy">
         <span class="auth-kicker">Player Profile</span>
@@ -56,7 +56,7 @@
     <div id="eventBar" class="event-bar">
       <select id="eventRegionSelect"><option value="">Select this week's event (sorted by country/state)</option></select>
     </div>
-    <div id="serverStatusBanner" class="notice hidden"></div>
+    <div id="serverStatusBanner" class="notice hidden" role="status"></div>
     <div id="eventHelp" class="event-help notice">Events load automatically. Choose one from the sorted dropdown (country/state) to load matches.</div>
     <div id="predictionGuide" class="prediction-guide">
       <strong>How Predictions Work:</strong> Pick the winning alliance (Red/Blue) and optionally guess the winner's score. Match predictions lock <strong>10 minutes before that match starts</strong>. In the playoff bracket, pick winners to advance through each round and predict each match's winning score.
@@ -113,13 +113,13 @@
         <label><input type="radio" name="setupMode" value="skip" /> Continue Without Team</label>
       </div>
       <div id="joinTeamRow" class="admin-row">
-        <input id="onboardingTeamCode" class="admin-input" maxlength="5" list="onboardingTeamCodeList" placeholder="Enter 5-character team code" />
+        <input id="onboardingTeamCode" class="admin-input" maxlength="5" list="onboardingTeamCodeList" placeholder="Enter 5-character team code" aria-label="Team code" />
         <datalist id="onboardingTeamCodeList"></datalist>
       </div>
       <div id="createTeamRow" class="admin-row hidden">
-        <input id="onboardingTeamName" class="admin-input" placeholder="New team name" />
+        <input id="onboardingTeamName" class="admin-input" maxlength="100" placeholder="New team name" aria-label="New team name" />
       </div>
-      <div class="admin-row"><input id="onboardingTeamNumber" class="admin-input" placeholder="Your team number (optional)" /></div>
+      <div class="admin-row"><input id="onboardingTeamNumber" class="admin-input" maxlength="20" placeholder="Your team number (optional)" aria-label="Your team number (optional)" /></div>
       <div class="admin-row">
         <button class="load-btn" id="onboardingSaveBtn">Save</button>
         <button class="secondary-btn" id="onboardingSkipBtn">Skip Team</button>
@@ -146,9 +146,9 @@
       <div class="footer-feedback">
         <h3>Quick Feedback</h3>
         <form id="feedbackForm" class="footer-form">
-          <input id="feedbackName" type="text" class="footer-input" placeholder="Name (optional)" />
-          <input id="feedbackContact" type="text" class="footer-input" placeholder="Email or contact (optional)" />
-          <textarea id="feedbackMessage" class="footer-input footer-textarea" placeholder="Share an idea or bug..." required></textarea>
+          <input id="feedbackName" type="text" maxlength="100" class="footer-input" placeholder="Name (optional)" aria-label="Name (optional)" />
+          <input id="feedbackContact" type="text" maxlength="200" class="footer-input" placeholder="Email or contact (optional)" aria-label="Email or contact (optional)" />
+          <textarea id="feedbackMessage" maxlength="2000" class="footer-input footer-textarea" placeholder="Share an idea or bug..." aria-label="Feedback message" required></textarea>
           <button type="submit" class="secondary-btn">Send Feedback</button>
         </form>
         <div id="feedbackNotice" class="notice hidden"></div>

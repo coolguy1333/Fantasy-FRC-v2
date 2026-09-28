@@ -1,9 +1,18 @@
-import { api, setAuthToken } from "./api.js";
+import { api, setAuthToken, getAuthToken } from "./api.js";
 import { GUEST_PROFILE_ID, POLL_INTERVAL_MS } from "./constants.js";
 
 const GUEST_STORAGE_KEY = "ffrc_guest_state_v1";
 const RETRY_BASE_MS = 5000;
 const RETRY_MAX_MS = 60000;
+const MAX_CONFLICT_RETRIES = 4;
+const REJECTION_BANNER_MS = 8000;
+
+// 4xx answers other than "sign in again", "slow down" and "someone else saved
+// first" mean the server will never accept this change, so retrying is pointless.
+function isRejection(err) {
+  const status = err?.status;
+  return status >= 400 && status < 500 && ![401, 408, 409, 429].includes(status);
+}
 
 function emptyState() {
   return {
@@ -53,17 +62,21 @@ class Store {
     this.listeners = new Set();
     this._pollHandle = null;
     this._saveInFlight = null;
-    this._saveQueued = false;
     this._retryHandle = null;
     this._retryDelay = RETRY_BASE_MS;
 
+    // Changes made since the server last confirmed a save, oldest first. If
+    // someone else saved in between, the server answers 409 and we reload the
+    // fresh document and re-apply these on top of it.
+    this.pending = [];
     // dirty = true means this.state has local changes the server hasn't
     // confirmed yet. While dirty, polling must never overwrite this.state -
     // that would silently discard whatever the user just did.
     this.dirty = false;
-    // null | "session_expired" | "save_failed" - surfaced by the UI so a
-    // failed save is never just silent.
+    // null | "session_expired" | "save_failed" | "rejected" - surfaced by the UI
+    // so a failed save is never just silent. syncErrorCode is the server's reason.
     this.syncError = null;
+    this.syncErrorCode = null;
   }
 
   get profileId() {
@@ -79,18 +92,36 @@ class Store {
     for (const fn of this.listeners) fn(this.state);
   }
 
+  _resetSync() {
+    this.pending = [];
+    this.dirty = false;
+    this.syncError = null;
+    this.syncErrorCode = null;
+    this._clearRetry();
+  }
+
   async signIn(idToken) {
+    const previous = { token: getAuthToken(), user: this.user, isGlobalAdmin: this.isGlobalAdmin };
     setAuthToken(idToken);
-    const result = await api.verifyGoogle(idToken);
-    this.user = result.user;
-    this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
-    if (this.dirty) {
-      // There's a local change from before this sign-in (e.g. the previous
-      // token expired mid-session) - push it rather than pulling the server's
-      // version over it and losing it.
-      await this._persistRemote();
-    } else {
-      await this.loadRemote();
+    try {
+      const result = await api.verifyGoogle(idToken);
+      if (previous.user && previous.user.sub !== result.user.sub) this._resetSync(); // never replay one account's changes onto another
+      this.user = result.user;
+      this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
+      if (this.dirty) {
+        // A local change from before this sign-in (e.g. the previous token
+        // expired mid-session) - push it rather than pulling the server's
+        // version over it and losing it.
+        await this._persistRemote();
+      } else {
+        await this.loadRemote({ force: !previous.user });
+      }
+    } catch (err) {
+      // Don't leave a half signed-in session behind (or drop a still-usable one).
+      setAuthToken(previous.token);
+      this.user = previous.user;
+      this.isGlobalAdmin = previous.isGlobalAdmin;
+      throw err;
     }
     this.startPolling();
     return this.user;
@@ -100,10 +131,9 @@ class Store {
     setAuthToken(null);
     this.user = null;
     this.isGlobalAdmin = false;
-    this.dirty = false;
-    this.syncError = null;
-    this._clearRetry();
+    this._resetSync();
     this.stopPolling();
+    this.updatedAt = 0;
     this.state = loadGuestState();
     this.emit();
   }
@@ -111,26 +141,40 @@ class Store {
   enterGuestMode() {
     this.user = null;
     setAuthToken(null);
-    this.dirty = false;
-    this.syncError = null;
-    this._clearRetry();
+    this._resetSync();
     this.state = loadGuestState();
     this.emit();
   }
 
-  async loadRemote() {
+  async loadRemote({ force = false } = {}) {
     if (this.dirty) return; // never clobber an unsaved local change
     const { payload, updatedAt } = await api.getState();
-    this.state = payload;
-    this.updatedAt = updatedAt;
-    this.emit();
+    // Something may have changed while the request was in flight.
+    if (this.dirty || !this.user) return;
+    const recovered = this.syncError === "session_expired" || this.syncError === "save_failed";
+    if (recovered) {
+      this.syncError = null;
+      this.syncErrorCode = null;
+    }
+    if (force || updatedAt !== this.updatedAt) {
+      this.state = payload;
+      this.updatedAt = updatedAt;
+      this.emit();
+    } else if (recovered) {
+      this.emit();
+    }
   }
 
   startPolling() {
     this.stopPolling();
     this._pollHandle = setInterval(() => {
       if (!this.user || this._saveInFlight || this.dirty) return;
-      this.loadRemote().catch(() => {});
+      this.loadRemote().catch((err) => {
+        if (err?.status === 401) {
+          this.syncError = "session_expired";
+          this.emit();
+        }
+      });
     }, POLL_INTERVAL_MS);
   }
 
@@ -147,6 +191,8 @@ class Store {
 
   // Apply `mutator(state)` locally, re-render immediately, then persist.
   // Signed-in writes go to the server; guest writes go to localStorage.
+  // A mutator must only depend on the state it is handed (it may be re-applied
+  // to a newer copy of the document after a conflict).
   async mutate(mutator) {
     mutator(this.state);
     this.emit();
@@ -154,38 +200,88 @@ class Store {
       saveGuestState(this.state);
       return { ok: true };
     }
+    this.pending.push(mutator);
     this.dirty = true;
     return this._persistRemote();
   }
 
-  async _persistRemote() {
-    if (this._saveInFlight) {
-      this._saveQueued = true;
-      return this._saveInFlight;
+  _persistRemote() {
+    if (!this._saveInFlight) {
+      this._saveInFlight = this._flush().finally(() => {
+        this._saveInFlight = null;
+      });
     }
-    this._saveInFlight = (async () => {
+    return this._saveInFlight;
+  }
+
+  async _flush() {
+    for (let conflicts = 0; conflicts <= MAX_CONFLICT_RETRIES; ) {
+      const sent = this.pending.length;
       try {
-        const result = await api.putState(this.state);
+        const result = await api.putState(this.state, this.updatedAt);
         this.updatedAt = result.updatedAt;
-        this.dirty = false;
+        this.pending.splice(0, sent);
+        this.dirty = this.pending.length > 0;
         this.syncError = null;
+        this.syncErrorCode = null;
         this._clearRetry();
         this.emit();
-        return { ok: true };
+        if (!this.dirty) return { ok: true };
+        // More changes arrived while this save was in flight: send them too.
       } catch (err) {
-        this.syncError = err?.status === 401 ? "session_expired" : "save_failed";
-        this.emit();
-        this._scheduleRetry();
-        return { ok: false, error: err };
-      } finally {
-        this._saveInFlight = null;
-        if (this._saveQueued) {
-          this._saveQueued = false;
-          this._persistRemote();
+        if (err?.status !== 409) return this._onSaveError(err);
+        conflicts += 1;
+        try {
+          await this._rebase();
+        } catch (rebaseErr) {
+          return this._onSaveError(rebaseErr);
         }
       }
-    })();
-    return this._saveInFlight;
+    }
+    return this._onSaveError(new Error("too_many_conflicts"));
+  }
+
+  async _rebase() {
+    const { payload, updatedAt } = await api.getState();
+    this.state = payload;
+    this.updatedAt = updatedAt;
+    for (const mutator of this.pending) {
+      try {
+        mutator(this.state);
+      } catch (err) {
+        console.warn("Could not re-apply a pending change:", err);
+      }
+    }
+    this.emit();
+  }
+
+  async _onSaveError(err) {
+    if (isRejection(err)) {
+      // The server refuses this change outright (e.g. the match locked while it
+      // was queued). Drop it and show the real state instead of retrying forever.
+      this.pending = [];
+      this.dirty = false;
+      this._clearRetry();
+      this.syncError = "rejected";
+      this.syncErrorCode = err.message;
+      setTimeout(() => {
+        if (this.syncError === "rejected") {
+          this.syncError = null;
+          this.emit();
+        }
+      }, REJECTION_BANNER_MS);
+      try {
+        await this.loadRemote({ force: true });
+      } catch {
+        this.emit();
+      }
+      return { ok: false, rejected: true, error: err };
+    }
+    this.syncError = err?.status === 401 ? "session_expired" : "save_failed";
+    this.syncErrorCode = err?.message || null;
+    this.emit();
+    this._scheduleRetry();
+    return { ok: false, error: err };
   }
 
   _scheduleRetry() {

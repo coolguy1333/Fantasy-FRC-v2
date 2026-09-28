@@ -27,6 +27,7 @@ module.exports = {
   // default for a bare LXC exposed directly), a client can't spoof its own
   // IP and bypass the per-IP rate limits by forging X-Forwarded-For.
   trustProxy: bool(process.env.TRUST_PROXY, false),
+  publicUrl: String(process.env.PUBLIC_URL || "").trim(),
   dataDir,
   dbPath: path.join(dataDir, "fantasyfrc.db"),
   publicDir: path.join(__dirname, "..", "public"),

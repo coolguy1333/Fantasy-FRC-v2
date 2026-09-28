@@ -32,6 +32,22 @@ function renderAuthPanel() {
   }
 }
 
+const REJECTION_MESSAGES = {
+  prediction_locked: "That pick locked before it could be saved, so it was undone. Picks lock 10 minutes before a match starts.",
+  forbidden_state_change: "The server didn't allow that change, so it was undone.",
+  payload_too_large: "That change was too large to save, so it was undone."
+};
+
+function syncMessage() {
+  if (store.syncError === "session_expired") {
+    return "Your sign-in expired. Renewing it - if that doesn't work, sign in again. Changes since then are only on this device until you do.";
+  }
+  if (store.syncError === "rejected") {
+    return REJECTION_MESSAGES[store.syncErrorCode] || "The server rejected your last change, so it was undone.";
+  }
+  return "Couldn't save your last change to the server. Retrying - it's kept on this device in the meantime.";
+}
+
 function renderSyncStatus() {
   const banner = $("serverStatusBanner");
   if (!banner) return;
@@ -41,10 +57,7 @@ function renderSyncStatus() {
   }
   banner.classList.remove("hidden");
   banner.className = "notice notice-error";
-  banner.textContent =
-    store.syncError === "session_expired"
-      ? "Your sign-in expired. Sign in again to keep syncing predictions - anything made since is only saved on this device until you do."
-      : "Couldn't save your last change to the server. Retrying - your predictions are safe on this device in the meantime.";
+  banner.textContent = syncMessage();
 }
 
 function wireNav() {
@@ -97,25 +110,47 @@ function wireHeaderProfileMenu() {
 function wireFeedbackForm() {
   const form = $("feedbackForm");
   if (!form) return;
-  form.addEventListener("submit", (e) => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = $("feedbackName").value.trim();
     const contact = $("feedbackContact").value.trim();
     const message = $("feedbackMessage").value.trim();
     if (!message) return;
-    store
-      .mutate((state) => {
-        state.feedback.push({ profileId: store.profileId, name, contact, message, at: Date.now() });
-      })
-      .then((result) => {
-        if (result.ok) {
-          notice("feedbackNotice", "Thanks for the feedback!", "success");
-          form.reset();
-        } else {
-          notice("feedbackNotice", "Could not send feedback. Sign in first.", "error");
-        }
-      });
+    // Feedback is delivered to the admins by the server, so it needs an account.
+    if (!store.user) return notice("feedbackNotice", "Sign in with Google to send feedback.", "error");
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      await api.sendFeedback({ name, contact, message });
+      notice("feedbackNotice", "Thanks for the feedback!", "success");
+      form.reset();
+    } catch (err) {
+      const text = err.status === 429 ? "You've already sent a lot of feedback - thank you!" : "Could not send feedback. Please try again.";
+      notice("feedbackNotice", text, "error");
+    } finally {
+      button.disabled = false;
+    }
   });
+}
+
+// Unsaved predictions live only in memory until the server confirms them.
+function warnBeforeLosingUnsavedChanges() {
+  window.addEventListener("beforeunload", (e) => {
+    if (!store.dirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
+}
+
+async function loadRuntimeConfig() {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await api.runtimeConfig();
+    } catch {
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
+  return {};
 }
 
 function wireOnboardingModal() {
@@ -146,7 +181,7 @@ function wireTeamInviteLink() {
 }
 
 async function boot() {
-  const config = await api.runtimeConfig().catch(() => ({}));
+  const config = await loadRuntimeConfig();
   document.querySelector('meta[name="app-version"]')?.setAttribute("content", config.appVersion || "dev");
 
   initAuth(config.googleClientId, {
@@ -163,7 +198,7 @@ async function boot() {
     renderSyncStatus();
   });
 
-  initMatchesView();
+  initMatchesView({ tbaConfigured: config.tbaConfigured !== false });
   initBracketView();
   initScoreView();
   initLeaderboardView();
@@ -174,6 +209,7 @@ async function boot() {
   wireFeedbackForm();
   wireOnboardingModal();
   wireTeamInviteLink();
+  warnBeforeLosingUnsavedChanges();
 
   renderHeaderProfile();
   renderAuthPanel();

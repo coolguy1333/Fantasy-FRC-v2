@@ -1,26 +1,48 @@
 import { api } from "../api.js";
 import { store } from "../store.js";
-import { $, el, notice, isLocked, msUntilLock, formatCountdown, matchLabel, teamList } from "../ui.js";
+import { $, el, notice, isLocked, msUntilLock, formatCountdown, matchLabel, teamList, makeGuardedRender } from "../ui.js";
 import { scorePredictions } from "../scoring.js";
+
+const EVENT_STORAGE_KEY = "ffrc_selected_event";
 
 let selectedEventKey = "";
 let cachedMatches = [];
 let tickHandle = null;
+let catalogShowAll = null; // the "show all events" setting the current dropdown was built with
+let tbaConfigured = true;
+
+function readSavedEvent() {
+  try {
+    return localStorage.getItem(EVENT_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveEvent(key) {
+  try {
+    if (key) localStorage.setItem(EVENT_STORAGE_KEY, key);
+    else localStorage.removeItem(EVENT_STORAGE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 async function loadEventCatalog() {
   const select = $("eventRegionSelect");
-  if (!select) return;
+  if (!select || !tbaConfigured) return;
   const year = new Date().getFullYear();
+  const showAll = Boolean(store.state.showAllEventsInCatalog);
+  catalogShowAll = showAll;
   let events = [];
   try {
     events = await api.tbaEventsForYear(year);
   } catch {
-    notice("eventHelp", "Could not load the event list right now.", "error");
+    notice("eventHelp", "Could not load the event list right now. Reload the page to try again.", "error");
     return;
   }
   const now = Date.now();
   const windowMs = 10 * 24 * 60 * 60 * 1000; // show events within ~10 days unless "show all" is on
-  const showAll = Boolean(store.state.showAllEventsInCatalog);
   const filtered = events.filter((e) => {
     if (showAll) return true;
     const start = e.start_date ? new Date(e.start_date).getTime() : null;
@@ -43,8 +65,22 @@ async function loadEventCatalog() {
   }
   notice(
     "eventHelp",
-    filtered.length ? "" : "No nearby events found for the current window. Ask an admin to enable 'show all events'."
+    filtered.length ? "" : "No nearby events found for the current window. An admin can turn on 'Show all events' in the Admin tab."
   );
+
+  // Keep (or restore) the event the player was on: a refresh shouldn't reset it.
+  const wanted = selectedEventKey || readSavedEvent();
+  if (wanted && !filtered.some((e) => e.key === wanted)) {
+    if (selectedEventKey) select.append(el("option", { value: wanted }, wanted));
+    else return;
+  }
+  if (wanted) {
+    select.value = wanted;
+    if (wanted !== selectedEventKey) {
+      selectedEventKey = wanted;
+      loadMatchesForEvent(wanted);
+    }
+  }
 }
 
 async function loadMatchesForEvent(eventKey) {
@@ -53,12 +89,22 @@ async function loadMatchesForEvent(eventKey) {
     render();
     return;
   }
+  let matches;
+  let failed = false;
   try {
-    cachedMatches = await api.tbaEventMatches(eventKey);
+    matches = await api.tbaEventMatches(eventKey);
   } catch {
-    notice("eventHelp", "Could not load matches for that event.", "error");
-    cachedMatches = [];
+    failed = true;
   }
+  // The player may have picked a different event while this was loading.
+  if (eventKey !== selectedEventKey) return;
+  if (failed) {
+    notice("eventHelp", "Could not load matches for that event. Retrying automatically.", "error");
+    if (!cachedMatches.length) render();
+    return;
+  }
+  notice("eventHelp", "");
+  cachedMatches = matches;
   render();
 }
 
@@ -114,11 +160,18 @@ function renderMatchRow(match) {
   if (!isPractice) {
     const scoreInput = el("input", {
       type: "number",
+      min: "0",
+      max: "999",
+      inputmode: "numeric",
+      "aria-label": `Guess the winning score for ${matchLabel(match)}`,
       class: "score-guess-input",
       placeholder: "Guess winner's score",
       value: prediction.score ?? "",
       disabled: locked || played ? "disabled" : null,
-      onchange: (e) => setPrediction(match.key, { score: e.target.value === "" ? null : Number(e.target.value) })
+      onchange: (e) => {
+        const value = e.target.value === "" ? null : Math.min(999, Math.max(0, Math.round(Number(e.target.value))));
+        if (value !== (prediction.score ?? null)) setPrediction(match.key, { score: value });
+      }
     });
     row.append(el("div", { class: "score-guess-row" }, [scoreInput]));
   }
@@ -135,7 +188,7 @@ function renderMatchRow(match) {
   return row;
 }
 
-function render() {
+function renderNow() {
   const current = $("currentMatches");
   const upcoming = $("upcomingMatches");
   const previous = $("previousMatches");
@@ -167,6 +220,8 @@ function render() {
   );
 }
 
+const render = makeGuardedRender(() => [$("matchesTab")], renderNow);
+
 export function currentScoreSummary() {
   return scorePredictions(cachedMatches, predictionsFor(store.profileId));
 }
@@ -179,14 +234,27 @@ export function currentEventKey() {
   return selectedEventKey;
 }
 
-export function initMatchesView() {
+export function initMatchesView({ tbaConfigured: configured = true } = {}) {
+  tbaConfigured = configured;
+  if (!tbaConfigured) {
+    notice("eventHelp", "Live event data isn't set up on this server yet (it needs a TBA_API_KEY).", "error");
+  }
   loadEventCatalog();
   $("eventRegionSelect")?.addEventListener("change", (e) => {
     selectedEventKey = e.target.value;
+    saveEvent(selectedEventKey);
+    cachedMatches = [];
+    render();
     loadMatchesForEvent(selectedEventKey);
   });
-  store.subscribe(render);
+  store.subscribe(() => {
+    // Signing in as an admin can flip "show all events"; rebuild the list when it does.
+    if (Boolean(store.state.showAllEventsInCatalog) !== catalogShowAll && catalogShowAll !== null) loadEventCatalog();
+    render();
+  });
   if (tickHandle) clearInterval(tickHandle);
   tickHandle = setInterval(render, 1000); // keep lock countdowns fresh
-  setInterval(() => selectedEventKey && loadMatchesForEvent(selectedEventKey), 30000);
+  setInterval(() => {
+    if (selectedEventKey && !document.hidden) loadMatchesForEvent(selectedEventKey);
+  }, 30000);
 }

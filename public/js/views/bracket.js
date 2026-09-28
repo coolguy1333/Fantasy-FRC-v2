@@ -1,39 +1,43 @@
 import { store } from "../store.js";
-import { $, el } from "../ui.js";
+import { $, el, isLocked, makeGuardedRender } from "../ui.js";
 import { BRACKET_GAMES, BRACKET_POINTS_BY_GAME } from "../constants.js";
-import { currentEventMatches } from "./matches.js";
-import { gameIdForMatch, matchWinner, scoreBracket } from "../scoring.js";
+import { currentEventMatches, currentEventKey } from "./matches.js";
+import { bracketEntriesForEvent, bracketKey, gameIdForMatch, matchWinner, scoreBracket } from "../scoring.js";
 
+// Picks and score guesses are stored per event ("<eventKey>:<gameId>").
 function picksFor(profileId) {
-  return store.state.bracketPicksByProfile[profileId] || {};
+  return bracketEntriesForEvent(store.state.bracketPicksByProfile[profileId], currentEventKey());
 }
 
 function scoresFor(profileId) {
-  return store.state.bracketScoreByProfile[profileId] || {};
+  return bracketEntriesForEvent(store.state.bracketScoreByProfile[profileId], currentEventKey());
 }
 
+// Same lock rule as match predictions (the server enforces it too).
 function isBracketLocked(gameId) {
-  const matches = currentEventMatches();
-  const match = matches.find((m) => gameIdForMatch(m) === gameId);
-  if (!match || !match.time) return false;
-  return Date.now() >= match.time * 1000 - 10 * 60 * 1000;
+  const match = currentEventMatches().find((m) => gameIdForMatch(m) === gameId);
+  return Boolean(match) && isLocked(match);
 }
 
 function setPick(gameId, winner) {
-  if (isBracketLocked(gameId)) return;
+  const eventKey = currentEventKey();
+  if (!eventKey || isBracketLocked(gameId)) return;
   store.mutate((state) => {
     const id = store.profileId;
     state.bracketPicksByProfile[id] = state.bracketPicksByProfile[id] || {};
-    state.bracketPicksByProfile[id][gameId] = winner;
+    state.bracketPicksByProfile[id][bracketKey(eventKey, gameId)] = winner;
   });
 }
 
 function setScoreGuess(gameId, value) {
-  if (isBracketLocked(gameId)) return;
+  const eventKey = currentEventKey();
+  if (!eventKey || isBracketLocked(gameId)) return;
+  const guess = value === "" ? null : Math.min(999, Math.max(0, Math.round(Number(value))));
+  if (guess === (scoresFor(store.profileId)[gameId] ?? null)) return;
   store.mutate((state) => {
     const id = store.profileId;
     state.bracketScoreByProfile[id] = state.bracketScoreByProfile[id] || {};
-    state.bracketScoreByProfile[id][gameId] = value === "" ? null : Number(value);
+    state.bracketScoreByProfile[id][bracketKey(eventKey, gameId)] = guess;
   });
 }
 
@@ -73,6 +77,10 @@ function renderGameCard(game) {
   card.append(
     el("input", {
       type: "number",
+      min: "0",
+      max: "999",
+      inputmode: "numeric",
+      "aria-label": `Guess the winning score for game ${game.id.toUpperCase()}`,
       class: "score-guess-input",
       placeholder: "Winner score guess",
       value: scoreGuess ?? "",
@@ -84,7 +92,7 @@ function renderGameCard(game) {
   return card;
 }
 
-function render() {
+function renderNow() {
   const container = $("playoffBracket");
   if (!container) return;
   container.innerHTML = "";
@@ -97,6 +105,8 @@ function render() {
     container.append(el("div", { class: "bracket-round" }, [el("h4", {}, round), el("div", { class: "bracket-round-cards" }, games.map(renderGameCard))]));
   }
 }
+
+const render = makeGuardedRender(() => [$("playoffBracket")], renderNow);
 
 export function currentBracketSummary() {
   return scoreBracket(currentEventMatches(), picksFor(store.profileId), scoresFor(store.profileId));

@@ -1,5 +1,5 @@
 import { store } from "../store.js";
-import { $, el, notice } from "../ui.js";
+import { $, el, notice, makeGuardedRender } from "../ui.js";
 
 function isGlobalAdmin() {
   return Boolean(store.isGlobalAdmin);
@@ -71,7 +71,20 @@ function renderFeedbackSection() {
 
 function renderPermissionsSection() {
   const wrap = el("div");
-  const emailInput = el("input", { class: "admin-input", placeholder: "Email to grant global admin" });
+  wrap.append(
+    el("label", { class: "admin-row" }, [
+      el("input", {
+        type: "checkbox",
+        checked: store.state.showAllEventsInCatalog ? "checked" : null,
+        onchange: (e) =>
+          store.mutate((state) => {
+            state.showAllEventsInCatalog = e.target.checked;
+          })
+      }),
+      " Show all events in the event list (not just ones happening soon)"
+    ])
+  );
+  const emailInput = el("input", { class: "admin-input", type: "email", placeholder: "Email to grant global admin", "aria-label": "Email to grant global admin" });
   wrap.append(
     el("div", { class: "admin-row" }, [
       emailInput,
@@ -82,7 +95,7 @@ function renderPermissionsSection() {
           onclick: () =>
             store.mutate((state) => {
               const email = emailInput.value.trim().toLowerCase();
-              if (email && !state.globalAdminEmails.includes(email)) state.globalAdminEmails.push(email);
+              if (email.includes("@") && !state.globalAdminEmails.includes(email)) state.globalAdminEmails.push(email);
             })
         },
         "Grant Global Admin"
@@ -138,7 +151,7 @@ function renderMyTeamSection(teamId) {
   return wrap;
 }
 
-function render() {
+function renderNow() {
   const panel = $("adminPanel");
   if (!panel) return;
   const admin = isGlobalAdmin();
@@ -164,6 +177,8 @@ function render() {
     panel.append(section("My Team", renderMyTeamSection(teamId)));
   }
 }
+
+const render = makeGuardedRender(() => [$("adminPanel")], renderNow);
 
 export function initAdminView() {
   store.subscribe(render);
