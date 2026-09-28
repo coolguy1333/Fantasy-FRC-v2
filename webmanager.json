@@ -28,13 +28,10 @@
       "name": "REQUIRE_HTTPS",
       "description": "Reject non-HTTPS requests. Safe to leave on since the app always sits behind the platform's HTTPS reverse proxy.",
       "default": "true",
-      "choices": ["true", "false"]
-    },
-    {
-      "name": "LOCAL_API_ONLY",
-      "description": "Block all non-loopback API access. Rarely needed - leave false for normal use.",
-      "default": "false",
-      "choices": ["true", "false"]
+      "choices": [
+        "true",
+        "false"
+      ]
     }
   ]
 }

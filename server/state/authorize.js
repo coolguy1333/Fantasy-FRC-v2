@@ -90,10 +90,15 @@ function checkAuthorization(prevState, nextState, user) {
     }
   }
 
-  // profileTeams: everyone may set their own membership (join by code, or
-  // land on the team they just created); nobody may set anyone else's.
+  // profileTeams: everyone may set their own membership (join by code, or land
+  // on the team they just created). Nobody may set anyone else's - except that
+  // a team admin may remove (never add or move) a member of a team they administer.
   const profileTeamsChanged = diffKeys(prevState.profileTeams, nextState.profileTeams);
-  const illegalMembership = profileTeamsChanged.filter((key) => key !== user.sub);
+  const illegalMembership = profileTeamsChanged.filter((key) => {
+    if (key === user.sub) return false;
+    const removed = !Object.prototype.hasOwnProperty.call(nextState.profileTeams || {}, key);
+    return !(removed && adminTeams.includes((prevState.profileTeams || {})[key]));
+  });
   if (illegalMembership.length) return { ok: false, error: `profileTeams:${illegalMembership[0]}:not_own_profile` };
 
   // Feedback is append-only, and only for one's own new entry per write.

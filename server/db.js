@@ -1,7 +1,7 @@
 const fs = require("fs");
 const Database = require("better-sqlite3");
 const config = require("./config");
-const { emptyState } = require("./state/schema");
+const { emptyState, normalizeState } = require("./state/schema");
 
 if (!fs.existsSync(config.dataDir)) fs.mkdirSync(config.dataDir, { recursive: true });
 
@@ -12,7 +12,10 @@ function openDatabase() {
     return db;
   } catch (err) {
     // Corrupt DB file: quarantine it and start fresh rather than crash-looping.
-    if (fs.existsSync(config.dbPath)) {
+    // Only for real corruption - a permissions/disk/locking error must not make
+    // us move a healthy database aside and silently start from empty.
+    const corrupt = err.code === "SQLITE_CORRUPT" || err.code === "SQLITE_NOTADB";
+    if (corrupt && fs.existsSync(config.dbPath)) {
       const backupPath = `${config.dbPath}.corrupt-${Date.now()}.bak`;
       fs.renameSync(config.dbPath, backupPath);
       console.error(`Database failed to open, quarantined to ${backupPath}:`, err.message);
@@ -46,8 +49,10 @@ function readState() {
   const row = getStateStmt.get(STATE_ID);
   if (!row) return { state: emptyState(), updatedAt: 0 };
   try {
-    return { state: JSON.parse(row.payload), updatedAt: Number(row.updated_at) };
-  } catch {
+    // normalize so a document saved before a domain existed still has every key
+    return { state: normalizeState(JSON.parse(row.payload)), updatedAt: Number(row.updated_at) };
+  } catch (err) {
+    console.error("Stored state is not valid JSON, treating as empty:", err.message);
     return { state: emptyState(), updatedAt: Number(row.updated_at) || 0 };
   }
 }
