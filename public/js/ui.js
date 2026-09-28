@@ -19,6 +19,32 @@ export function el(tag, attrs = {}, children = []) {
   return node;
 }
 
+// Views re-render on a timer and on every sync. Rebuilding the DOM while
+// someone is typing in a field wipes what they typed and steals focus, so a
+// render requested during editing is held back and flushed once they leave the
+// field. (If focus moved to a button, that button's own click re-renders.)
+export function isEditing(...containers) {
+  const active = document.activeElement;
+  if (!active || !active.matches?.("input:not([type=checkbox]):not([type=radio]), textarea, select")) return false;
+  return containers.some((c) => c && c.contains(active));
+}
+
+export function makeGuardedRender(getContainers, renderFn) {
+  let pending = false;
+  const guarded = () => {
+    if (isEditing(...getContainers())) {
+      pending = true;
+      return;
+    }
+    pending = false;
+    renderFn();
+  };
+  document.addEventListener("focusout", (e) => {
+    if (pending) setTimeout(guarded, e.relatedTarget ? 500 : 0);
+  });
+  return guarded;
+}
+
 export function showTab(tabId, button) {
   document.querySelectorAll(".tab-panel").forEach((n) => n.classList.add("hidden"));
   document.querySelectorAll(".nav-btn").forEach((n) => n.classList.remove("active"));

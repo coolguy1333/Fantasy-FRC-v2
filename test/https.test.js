@@ -1,10 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const net = require("node:net");
 const { startServer } = require("./helpers/server");
 
-// Raw request so we control the source: loopback is exempt from REQUIRE_HTTPS, so
-// to exercise the rule we go through X-Forwarded-Proto with a trusted proxy setup.
+// Loopback callers are exempt from REQUIRE_HTTPS, so from a test we can only
+// check the exemptions and headers; the protocol parsing itself is covered below.
 test("REQUIRE_HTTPS with a trusted proxy", async () => {
   const s = await startServer({ REQUIRE_HTTPS: "true", TRUST_PROXY: "true" });
   try {
@@ -32,5 +31,4 @@ test("a comma-separated X-Forwarded-Proto is read by its first value", async () 
   const res = await fetch(`http://127.0.0.1:${port}/`, { headers: { "x-forwarded-proto": "https, http" } });
   assert.equal(await res.text(), "https");
   server.close();
-  void net;
 });

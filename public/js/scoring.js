@@ -6,6 +6,20 @@ import {
   BRACKET_POINTS_BY_GAME
 } from "./constants.js";
 
+// Bracket picks/score guesses are stored per event as "<eventKey>:<gameId>", so
+// picks made at one event can never be scored against another event's bracket.
+export const bracketKey = (eventKey, gameId) => `${eventKey}:${gameId}`;
+
+export function bracketEntriesForEvent(entries = {}, eventKey) {
+  const out = {};
+  if (!eventKey) return out;
+  const prefix = `${eventKey}:`;
+  for (const [key, value] of Object.entries(entries || {})) {
+    if (key.startsWith(prefix)) out[key.slice(prefix.length)] = value;
+  }
+  return out;
+}
+
 export function matchWinner(match) {
   const red = match?.alliances?.red?.score ?? -1;
   const blue = match?.alliances?.blue?.score ?? -1;

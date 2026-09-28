@@ -1,14 +1,19 @@
 import { store } from "../store.js";
 import { $, el } from "../ui.js";
-import { scorePredictions, scoreBracket } from "../scoring.js";
-import { currentEventMatches } from "./matches.js";
+import { scorePredictions, scoreBracket, bracketEntriesForEvent } from "../scoring.js";
+import { currentEventMatches, currentEventKey } from "./matches.js";
 
 let mode = "player"; // player | team | teamvs
 
 function totalPointsFor(profileId) {
   const matches = currentEventMatches();
   const match = scorePredictions(matches, store.state.predictionsByProfile[profileId] || {});
-  const bracket = scoreBracket(matches, store.state.bracketPicksByProfile[profileId] || {}, store.state.bracketScoreByProfile[profileId] || {});
+  const eventKey = currentEventKey();
+  const bracket = scoreBracket(
+    matches,
+    bracketEntriesForEvent(store.state.bracketPicksByProfile[profileId], eventKey),
+    bracketEntriesForEvent(store.state.bracketScoreByProfile[profileId], eventKey)
+  );
   const adjustment = Number(store.state.pointAdjustments?.[profileId] || 0);
   return Math.round((match.points + bracket.points + adjustment) * 10) / 10;
 }
@@ -78,6 +83,12 @@ function renderRows(rows, label) {
 function render() {
   if (!$("leaderboardContent")) return;
   renderFilters();
+  if (!currentEventKey()) {
+    // Standings are computed from the matches of the event picked on the Matches tab.
+    $("leaderboardContent").innerHTML = "";
+    $("leaderboardContent").append(el("p", { class: "muted" }, "Pick an event on the Matches tab to see its standings."));
+    return;
+  }
   if (mode === "player") renderRows(playerRows(), "Player");
   else renderRows(teamRows(), "Team");
 }

@@ -22,12 +22,9 @@ together, and [`docs/API.md`](./docs/API.md) for the REST API.
 
 ## Before opening a PR
 
-- **If you touched `server/state/authorize.js`**: this is the highest-stakes
-  file in the app (it's the entire access-control model). Write a small
-  throwaway script that calls `checkAuthorization` directly with a few
-  before/after state pairs covering the change you made, including at least
-  one case that *should* be rejected. There's no test runner wired up yet,
-  so `node your-script.js` is fine - just don't skip it.
+- **Run `npm test`.** If you touched `server/state/authorize.js` or
+  `locks.js` - the access-control model - add a case to `test/api.test.js`
+  covering your change, including at least one that *should* be rejected.
 - **If you touched anything in `public/`**: don't add `onclick=`/`onsubmit=`
   or other inline event-handler attributes to `index.html` - the CSP
   (`server/security.js`) blocks inline script by design. Wire new
@@ -37,9 +34,11 @@ together, and [`docs/API.md`](./docs/API.md) for the REST API.
   flag and polling - it exists specifically to stop a failed/expired save
   from being silently overwritten by the next poll. See
   [`docs/ARCHITECTURE.md#sync-and-offline-safety`](./docs/ARCHITECTURE.md#sync-and-offline-safety).
-- Run the app locally and click through the flow you changed. There's no
-  automated test suite yet (see [Known limitations](./docs/ARCHITECTURE.md#known-limitations)
-  and [Testing](./docs/ARCHITECTURE.md#testing) in the architecture doc).
+- Run the app locally and click through the flow you changed. The tests cover
+  the server only; the frontend is checked by hand (see
+  [Testing](./docs/ARCHITECTURE.md#testing) in the architecture doc).
+- If a view has text inputs, render through `makeGuardedRender` (`ui.js`) so a
+  timer or sync doesn't wipe what someone is typing.
 
 ## Reporting bugs / security issues
 

@@ -75,10 +75,12 @@ Optional: put nginx + a real domain + HTTPS in front using
 The repo also includes a `Dockerfile` and `webmanager.json`, so it can be
 deployed to any Docker host or a WebManager-style platform without the
 systemd/LXC setup above. The container reads `TBA_API_KEY`,
-`GOOGLE_CLIENT_ID`, `GLOBAL_ADMIN_EMAILS`, `GLOBAL_ADMIN_IDS`,
-`REQUIRE_HTTPS`, and `LOCAL_API_ONLY` from the environment (see
-`webmanager.json`); `PORT`, `HOST`, `DATA_DIR`, and `TRUST_PROXY` are set by
-the platform and don't need configuring. To run it manually:
+`GOOGLE_CLIENT_ID`, `GLOBAL_ADMIN_EMAILS`, `GLOBAL_ADMIN_IDS`, and
+`REQUIRE_HTTPS` from the environment (see `webmanager.json`); `PORT`, `HOST`,
+`DATA_DIR`, and `TRUST_PROXY` are set by the platform and don't need
+configuring. For Google sign-in, create a *Web application* OAuth client, add
+the app's public URL under "Authorized JavaScript origins", and set only
+`GOOGLE_CLIENT_ID` - no client secret is used. To run it manually:
 
 ```bash
 docker build -t fantasyfrc .
@@ -120,6 +122,7 @@ owned by the `fantasyfrc` user (`chown -R fantasyfrc:fantasyfrc /opt/fantasyfrc`
 npm install
 cp .env.example .env   # fill in TBA_API_KEY / GOOGLE_CLIENT_ID
 npm run dev
+npm test               # server tests; no network or credentials needed
 ```
 
 Serves on `http://127.0.0.1:3000`.
@@ -173,4 +176,4 @@ public/
 | `DATA_DIR` | No | - | Same as `FF_DATA_DIR`, takes priority if both are set (used by Docker/WebManager deploys) |
 | `REQUIRE_HTTPS` | No | `false` | Reject non-HTTPS requests (except loopback) |
 | `TRUST_PROXY` | No | `false` | Only set `true` if a reverse proxy sits in front and sets `X-Forwarded-*` itself - otherwise those headers are client-controlled and this must stay `false` |
-| `LOCAL_API_ONLY` | No | `false` | Block non-loopback API access |
+| `LOCAL_API_ONLY` | No | `false` | Block non-loopback API access. Leave off behind a reverse proxy or in Docker - every request arrives from the proxy, so it would reject them all |
