@@ -31,6 +31,10 @@ function securityHeaders(_req, res, next) {
 
 function enforceTransport(req, res, next) {
   if (!config.requireHttps) return next();
+  // The host's health probe talks to the container directly over plain HTTP
+  // (no proxy, not loopback), so it must not be rejected. The endpoint returns
+  // nothing sensitive.
+  if (req.path === "/api/health") return next();
   // Only consult X-Forwarded-Proto when we're actually behind a trusted
   // reverse proxy (config.trustProxy) - a client can set this header to
   // whatever it wants, so trusting it without a real proxy in front would
