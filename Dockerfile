@@ -16,7 +16,11 @@ COPY package.json ./
 COPY server ./server
 COPY public ./public
 
-RUN mkdir -p /data && chown node:node /data
+# The build context can carry restrictive modes (e.g. a checkout made with a
+# strict umask); make everything readable so the non-root user can load it.
+RUN chmod -R a+rX /app \
+    && mkdir -p /data \
+    && chown node:node /data
 USER node
 
 EXPOSE 8080
