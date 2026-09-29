@@ -90,16 +90,20 @@ function checkAuthorization(prevState, nextState, user) {
     }
   }
 
-  // profileTeams: everyone may set their own membership (join by code, or land
-  // on the team they just created). Nobody may set anyone else's - except that
-  // a team admin may remove (never add or move) a member of a team they administer.
+  // profileTeams: a person may leave their team, or land on a team they run (the one they
+  // just created). Joining someone else's team needs its code, which the server checks in
+  // POST /api/teams/join - so it can't be done by writing the document. Nobody may set
+  // anyone else's membership, except that a team admin may remove a member of their team.
   const profileTeamsChanged = diffKeys(prevState.profileTeams, nextState.profileTeams);
   const illegalMembership = profileTeamsChanged.filter((key) => {
-    if (key === user.sub) return false;
     const removed = !Object.prototype.hasOwnProperty.call(nextState.profileTeams || {}, key);
+    if (key === user.sub) return !(removed || adminTeams.includes(nextState.profileTeams[key]) || newTeamIds.has(nextState.profileTeams[key]));
     return !(removed && adminTeams.includes((prevState.profileTeams || {})[key]));
   });
-  if (illegalMembership.length) return { ok: false, error: `profileTeams:${illegalMembership[0]}:not_own_profile` };
+  if (illegalMembership.length) {
+    const key = illegalMembership[0];
+    return { ok: false, error: key === user.sub ? `profileTeams:${key}:join_requires_code` : `profileTeams:${key}:not_own_profile` };
+  }
 
   // Feedback is append-only, and only for one's own new entry per write.
   const prevFeedback = Array.isArray(prevState.feedback) ? prevState.feedback : [];

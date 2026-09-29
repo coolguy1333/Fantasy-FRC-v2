@@ -10,7 +10,9 @@ const limiters = {
   read: makeLimiter(240),
   write: makeLimiter(80),
   auth: makeLimiter(120),
-  tba: makeLimiter(180)
+  tba: makeLimiter(180),
+  // Team codes are 5 characters; keep guessing them impractical.
+  code: makeLimiter(20)
 };
 
 function isLoopback(ip) {

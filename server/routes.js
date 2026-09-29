@@ -77,7 +77,7 @@ router.get("/state", limiters.read, auth, (req, res) => {
   // Clients poll with the version they already have; most of the time nothing
   // changed, and answering with a few bytes beats resending the whole document.
   if (req.query.since !== undefined && Number(req.query.since) === updatedAt) return res.json({ unchanged: true, updatedAt });
-  const payload = isGlobalAdmin(state, req.authUser) ? state : redactForNonAdmin(state);
+  const payload = isGlobalAdmin(state, req.authUser) ? state : redactForNonAdmin(state, req.authUser);
   res.json({ payload, updatedAt });
 });
 
@@ -96,7 +96,7 @@ router.put("/state", limiters.write, auth, requireSameOrigin, stateJson, async (
 
     const admin = isGlobalAdmin(current.state, req.authUser);
     const incoming = normalizeState(req.body?.payload);
-    const normalized = admin ? incoming : restoreAdminOnlyDomains(current.state, incoming);
+    const normalized = admin ? incoming : restoreAdminOnlyDomains(current.state, incoming, req.authUser);
     const validation = validateState(normalized);
     if (!validation.ok) return res.status(400).json({ error: "invalid_payload", detail: validation.error });
     const authz = checkAuthorization(current.state, normalized, req.authUser);
@@ -141,6 +141,31 @@ router.post("/feedback", limiters.write, auth, requireSameOrigin, smallJson, (re
   });
   writeState(current.state, current.updatedAt);
   res.json({ ok: true });
+});
+
+const CODE_RE = /^[A-Z0-9]{5}$/;
+
+function findTeamByCode(state, raw) {
+  const code = String(raw || "").trim().toUpperCase();
+  if (!CODE_RE.test(code)) return null;
+  const teamId = Object.keys(state.teamInviteCodes).find((id) => String(state.teamInviteCodes[id]).toUpperCase() === code && state.groups[id]);
+  return teamId ? { teamId, name: state.groups[teamId].name || teamId } : null;
+}
+
+// Team codes are secrets: they are never sent to people who aren't on the team,
+// and joining goes through here, where the server checks the code itself.
+router.post("/teams/preview", limiters.code, auth, requireSameOrigin, smallJson, (req, res) => {
+  const team = findTeamByCode(readState().state, req.body?.code);
+  if (!team) return res.status(404).json({ error: "invalid_code" });
+  res.json({ ok: true, ...team });
+});
+
+router.post("/teams/join", limiters.code, auth, requireSameOrigin, smallJson, (req, res) => {
+  const current = readState();
+  const team = findTeamByCode(current.state, req.body?.code);
+  if (!team) return res.status(404).json({ error: "invalid_code" });
+  current.state.profileTeams[req.authUser.sub] = team.teamId;
+  res.json({ ok: true, ...team, updatedAt: writeState(current.state, current.updatedAt) });
 });
 
 function validateParam(re, param, errorName) {

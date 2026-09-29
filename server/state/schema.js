@@ -80,6 +80,8 @@ function validateState(state) {
       return { ok: false, error: `profile_field_too_long:${id}` };
     }
   }
+  const codes = Object.values(state.teamInviteCodes).map((c) => String(c).toUpperCase());
+  if (new Set(codes).size !== codes.length) return { ok: false, error: "duplicate_team_code" };
   for (const [id, group] of Object.entries(state.groups)) {
     if (group && typeof group === "object" && tooLong(group.name, MAX_NAME)) return { ok: false, error: `team_name_too_long:${id}` };
   }
