@@ -68,7 +68,6 @@ export function initGoogleSignIn(clientId) {
     window.google.accounts.id.initialize({ client_id: clientId, callback: handleCredential, auto_select: true });
     googleReady = true;
     renderButton("googleSignInHost");
-    renderButton("googleGateHost");
     promptSignIn();
   };
   tryInit();

@@ -4,6 +4,30 @@ Predict FRC match winners and scores, pick the playoff bracket, and track a
 shared leaderboard with your team. Guest mode works with no setup; Google
 sign-in unlocks synced predictions, teams, and admin tools.
 
+## Quick start (WebManager or any Docker host)
+
+The repo has a `Dockerfile` and `webmanager.json`, so deploying is: add the repo
+as an app, open its **Variables** page, and fill in three things.
+
+1. **Google sign-in** (`GOOGLE_CLIENT_ID`) - in
+   [Google Cloud Console](https://console.cloud.google.com/apis/credentials) create
+   an *OAuth client ID* of type **Web application**. Under **Authorized JavaScript
+   origins** add your site's address exactly as people type it (for example
+   `https://fantasy.example.com`, no trailing slash). Copy the **Client ID** into
+   `GOOGLE_CLIENT_ID`. You do **not** need the client secret.
+2. **You as admin** (`GLOBAL_ADMIN_EMAILS`) - the email of the Google account you'll
+   sign in with. That account gets an **Admin** tab.
+3. **Live data** (`TBA_API_KEY`) - a free key from
+   [thebluealliance.com/account](https://www.thebluealliance.com/account).
+
+Open the site, sign in, and check **Admin > Setup checklist**: it shows what's
+missing and the exact address to authorise in Google's console. People stay signed
+in for 30 days; signing out revokes their session.
+
+To run it by hand: `docker build -t fantasyfrc . && docker run -p 8080:8080 -e PORT=8080 -e DATA_DIR=/data -v fantasyfrc-data:/data fantasyfrc`.
+
+## About this project
+
 This is a from-scratch rewrite of the original app, aimed at being simple to
 deploy and cheap to maintain in a homelab:
 
@@ -70,23 +94,6 @@ Predictions and bracket picks lock 10 minutes before the match starts.
 Optional: put nginx + a real domain + HTTPS in front using
 `deploy/nginx.conf.example`, then set `REQUIRE_HTTPS=true` in `.env`.
 
-## Deploying as a Docker/WebManager app
-
-The repo also includes a `Dockerfile` and `webmanager.json`, so it can be
-deployed to any Docker host or a WebManager-style platform without the
-systemd/LXC setup above. The container reads `TBA_API_KEY`,
-`GOOGLE_CLIENT_ID`, `GLOBAL_ADMIN_EMAILS`, `GLOBAL_ADMIN_IDS`, and
-`REQUIRE_HTTPS` from the environment (see `webmanager.json`); `PORT`, `HOST`,
-`DATA_DIR`, and `TRUST_PROXY` are set by the platform and don't need
-configuring. For Google sign-in, create a *Web application* OAuth client, add
-the app's public URL under "Authorized JavaScript origins", and set only
-`GOOGLE_CLIENT_ID` - no client secret is used. To run it manually:
-
-```bash
-docker build -t fantasyfrc .
-docker run -p 8080:8080 -e PORT=8080 -e DATA_DIR=/data -v fantasyfrc-data:/data fantasyfrc
-```
-
 ### Updating later
 
 ```bash
@@ -142,13 +149,18 @@ server/
   index.js       - app entrypoint, wires everything together
   config.js      - all env vars in one place
   db.js          - SQLite open/read/write, corrupt-DB recovery
-  auth.js        - Google ID token verification + requireAuth middleware
+  auth.js        - Google ID token verification + requireAuth (cookie or bearer)
+  sessions.js    - 30-day sign-in sessions (hashed ids, HttpOnly cookie)
   security.js    - rate limits, CSP headers, same-origin check
   tba.js         - The Blue Alliance proxy (keeps API key server-side)
   routes.js      - all /api/* routes
   state/
     schema.js    - shared-state shape, defaults, validation
     authorize.js - who can write which part of shared state
+    locks.js     - server-side prediction locking against live TBA data
+    redact.js    - what non-admins (and non-members) must not see
+
+test/            - node:test suites; run with `npm test` (no network needed)
 
 public/
   index.html, style.css
@@ -156,10 +168,11 @@ public/
     main.js      - boot sequence, wires up views
     store.js     - client state: guest (localStorage) vs signed-in (synced)
     api.js       - thin fetch wrapper
-    scoring.js   - pure scoring functions
+    runtime.js   - server config + the event on screen
+    scoring.js   - pure scoring, bracket mapping and ranking
     constants.js
-    ui.js        - small dom helpers
-    views/       - one file per tab (matches, bracket, score, leaderboard, admin, teams, auth)
+    ui.js        - DOM helpers, dialogs, toasts
+    views/       - matches, bracket, cards, score, leaderboard, profile, admin, guest, auth, help
 ```
 
 ## Environment variables
@@ -169,11 +182,13 @@ public/
 | `TBA_API_KEY` | For live data | - | The Blue Alliance API key |
 | `GOOGLE_CLIENT_ID` | For sign-in | - | Google OAuth web client ID |
 | `GLOBAL_ADMIN_EMAILS` | No | - | Comma-separated emails bootstrapped as global admin |
-| `GLOBAL_ADMIN_IDS` | No | - | Comma-separated Google `sub` IDs bootstrapped as global admin |
+| `GLOBAL_ADMIN_IDS` | No | - | Advanced: Google `sub` IDs bootstrapped as global admin (most people just use `GLOBAL_ADMIN_EMAILS`) |
 | `HOST` | No | `0.0.0.0` | Bind host |
 | `PORT` | No | `3000` | Bind port |
 | `FF_DATA_DIR` | No | `./data` | Directory holding `fantasyfrc.db` (self-hosted deploys) |
 | `DATA_DIR` | No | - | Same as `FF_DATA_DIR`, takes priority if both are set (used by Docker/WebManager deploys) |
 | `REQUIRE_HTTPS` | No | `false` | Reject non-HTTPS requests (except loopback) |
 | `TRUST_PROXY` | No | `false` | Only set `true` if a reverse proxy sits in front and sets `X-Forwarded-*` itself - otherwise those headers are client-controlled and this must stay `false` |
+| `SESSION_TTL_DAYS` | No | `30` | How long a sign-in lasts (renewed while in use) |
+| `PUBLIC_URL` | No | - | The site's public address; also accepted as a same-origin host (set by WebManager) |
 | `LOCAL_API_ONLY` | No | `false` | Block non-loopback API access. Leave off behind a reverse proxy or in Docker - every request arrives from the proxy, so it would reject them all |

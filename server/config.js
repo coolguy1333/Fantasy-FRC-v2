@@ -6,6 +6,11 @@ function bool(value, fallback = false) {
   return String(value).trim().toLowerCase() === "true";
 }
 
+function positiveNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function csv(value) {
   return String(value || "").split(",").map((v) => v.trim()).filter(Boolean);
 }
@@ -34,7 +39,7 @@ module.exports = {
   tbaApiKey: String(process.env.TBA_API_KEY || "").trim(),
   tbaApiBase: "https://www.thebluealliance.com/api/v3",
   // How long a sign-in lasts. Sliding: active people are never signed out.
-  sessionTtlMs: Number(process.env.SESSION_TTL_DAYS || 30) * 24 * 60 * 60 * 1000,
+  sessionTtlMs: (positiveNumber(process.env.SESSION_TTL_DAYS) || 30) * 24 * 60 * 60 * 1000,
   googleClientId: String(process.env.GOOGLE_CLIENT_ID || "").trim(),
   requireHttps: bool(process.env.REQUIRE_HTTPS, false),
   localApiOnly: bool(process.env.LOCAL_API_ONLY, false),

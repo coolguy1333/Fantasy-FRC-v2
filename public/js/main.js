@@ -7,6 +7,7 @@ import { initMatchesView } from "./views/matches.js";
 import { initScoreView } from "./views/score.js";
 import { initLeaderboardView } from "./views/leaderboard.js";
 import { initAdminView } from "./views/admin.js";
+import { initGuestMigration } from "./views/guest.js";
 import { handleInviteLink, maybeShowOnboarding, openProfile, pendingInviteCode } from "./views/profile.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -24,6 +25,13 @@ function renderHeaderProfile() {
 
 function renderAuthPanel() {
   $("authPanel")?.classList.toggle("hidden", Boolean(store.user));
+  // No Google client ID configured: don't tell people to click a button that isn't there.
+  const noSignIn = runtime.config.authConfigured === false;
+  const copy = document.querySelector("#authPanel .auth-copy");
+  if (copy && noSignIn) {
+    fill(copy, el("h2", {}, "Playing as a guest"), el("p", {}, "Your picks are saved on this device. Sign-in isn't set up on this site yet, so teams and the leaderboard aren't available."));
+  }
+  $("googleSignInHost")?.classList.toggle("hidden", noSignIn);
   // Someone arriving from an invite link needs to know why they should sign in.
   const banner = $("inviteBanner");
   if (banner) {
@@ -43,6 +51,9 @@ const REJECTION_MESSAGES = {
 function syncMessage() {
   if (store.syncError === "session_expired") {
     return "You've been signed out. Sign in again to keep saving - changes since then are only on this device until you do.";
+  }
+  if (store.syncError === "load_failed") {
+    return "Couldn't load the latest data - retrying. You can keep making picks; they'll save once the connection is back.";
   }
   if (store.syncError === "rejected") {
     return REJECTION_MESSAGES[store.syncErrorCode] || "The server rejected your last change, so it was undone.";
@@ -203,6 +214,7 @@ async function boot() {
   initScoreView();
   initLeaderboardView();
   initAdminView();
+  initGuestMigration();
   wireNav();
   wireProfileMenu();
   wireFeedbackForm();

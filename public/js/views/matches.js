@@ -154,7 +154,7 @@ async function loadMatches() {
   } catch {
     matches = null;
   }
-  loadingMatchesFor = "";
+  if (loadingMatchesFor === key) loadingMatchesFor = "";
   // The player may have picked a different event while this was loading.
   if (key !== selectedEventKey) return;
   if (matches) {
@@ -457,6 +457,10 @@ export function initMatchesView({ tbaConfigured: configured = true } = {}) {
   document.addEventListener("visibilitychange", () => !document.hidden && selectedEventKey && loadMatches());
 
   if (!tbaConfigured) {
+    // Nothing to load: say so instead of showing "Loading events..." forever.
+    fill(select, el("option", { value: "" }, "Events unavailable"));
+    if (select) select.disabled = true;
+    if ($("refreshBtn")) $("refreshBtn").disabled = true;
     render();
     return;
   }

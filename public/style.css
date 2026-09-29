@@ -67,6 +67,7 @@ nav { display: flex; gap: 4px; margin-left: auto; }
 .notice { padding: 10px 12px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--border); margin-bottom: 12px; font-size: 14px; }
 .notice-error { border-color: var(--red); color: #ff8a80; }
 .notice-success { border-color: var(--green); color: var(--green); }
+.notice-info { border-color: var(--accent); }
 
 /* --------------------------------------------------------------- buttons */
 .load-btn, .secondary-btn, .danger-btn { border-radius: var(--radius); cursor: pointer; font-weight: 600; min-height: 44px; padding: 10px 16px; border: 1px solid transparent; }

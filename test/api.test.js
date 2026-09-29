@@ -39,6 +39,24 @@ test("unknown API routes, bad JSON and missing assets are proper errors", async 
   assert.match(page.headers.get("content-type"), /html/);
 });
 
+test("the web manifest and its icons are served", async () => {
+  const manifest = await fetch(`${s.base}/manifest.webmanifest`);
+  assert.equal(manifest.status, 200);
+  assert.match(manifest.headers.get("content-type"), /json/);
+  const icons = (await manifest.json()).icons;
+  assert.ok(icons.length >= 2);
+  for (const icon of icons) {
+    const res = await fetch(`${s.base}/${icon.src}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "image/png");
+  }
+});
+
+test("responses are compressed", async () => {
+  const res = await fetch(`${s.base}/js/views/matches.js`, { headers: { "accept-encoding": "gzip" } });
+  assert.equal(res.headers.get("content-encoding"), "gzip");
+});
+
 test("state endpoints require a valid token", async () => {
   assert.equal((await s.call("GET", "/api/state")).status, 401);
   assert.equal((await s.call("GET", "/api/state", { tok: token("x", { bad: true }) })).status, 401);

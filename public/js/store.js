@@ -53,6 +53,22 @@ function saveGuestState(state) {
   }
 }
 
+// Picks made as a guest, so signing in can offer to bring them along.
+export function readGuestPicks() {
+  const guest = loadGuestState();
+  const own = (domain) => guest[domain]?.[GUEST_PROFILE_ID] || {};
+  return { predictions: own("predictionsByProfile"), bracketPicks: own("bracketPicksByProfile"), bracketScores: own("bracketScoreByProfile") };
+}
+
+export function removeGuestPicks({ predictions = [], bracketPicks = [], bracketScores = [] }) {
+  const guest = loadGuestState();
+  const drop = (domain, keys) => keys.forEach((k) => guest[domain]?.[GUEST_PROFILE_ID] && delete guest[domain][GUEST_PROFILE_ID][k]);
+  drop("predictionsByProfile", predictions);
+  drop("bracketPicksByProfile", bracketPicks);
+  drop("bracketScoreByProfile", bracketScores);
+  saveGuestState(guest);
+}
+
 class Store {
   constructor() {
     this.user = null; // { sub, email, name, picture } | null
@@ -106,8 +122,26 @@ class Store {
     if (!result.user) return false;
     this.user = result.user;
     this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
-    await this.loadRemote({ force: true });
+    if (!(await this._loadAfterSignIn(true))) return false;
     this.startPolling();
+    return true;
+  }
+
+  // Load the document right after we know who someone is. A hiccup here must not
+  // make a signed-in person look signed out, so it becomes a retrying banner - only
+  // a 401 (the session vanished between the two calls) means they aren't signed in.
+  async _loadAfterSignIn(force) {
+    try {
+      await this.loadRemote({ force });
+    } catch (err) {
+      if (err?.status === 401) {
+        this.user = null;
+        this.isGlobalAdmin = false;
+        return false;
+      }
+      this.syncError = "load_failed";
+      this.emit();
+    }
     return true;
   }
 
@@ -115,23 +149,18 @@ class Store {
   // long-lived session cookie, so this only happens when signed out.
   async signIn(idToken) {
     const previous = { user: this.user, isGlobalAdmin: this.isGlobalAdmin };
-    try {
-      const result = await api.verifyGoogle(idToken);
-      if (previous.user && previous.user.sub !== result.user.sub) this._resetSync(); // never replay one account's changes onto another
-      this.user = result.user;
-      this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
-      if (this.dirty) {
-        // A local change from before this sign-in (e.g. the session ended
-        // mid-use) - push it rather than pulling the server's version over it.
-        await this._persistRemote();
-      } else {
-        await this.loadRemote({ force: !previous.user });
-      }
-    } catch (err) {
-      // Don't leave a half signed-in session behind.
+    const result = await api.verifyGoogle(idToken); // if this fails nothing has changed
+    if (previous.user && previous.user.sub !== result.user.sub) this._resetSync(); // never replay one account's changes onto another
+    this.user = result.user;
+    this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
+    if (this.dirty) {
+      // A local change from before this sign-in (e.g. the session ended
+      // mid-use) - push it rather than pulling the server's version over it.
+      await this._persistRemote();
+    } else if (!(await this._loadAfterSignIn(!previous.user))) {
       this.user = previous.user;
       this.isGlobalAdmin = previous.isGlobalAdmin;
-      throw err;
+      throw new Error("session_not_established");
     }
     this.startPolling();
     return this.user;
@@ -164,7 +193,7 @@ class Store {
   // "guest" | "saving" | "saved" | "error" - what the save indicator shows.
   get status() {
     if (!this.user) return "guest";
-    if (this.syncError === "save_failed" || this.syncError === "session_expired") return "error";
+    if (this.syncError === "save_failed" || this.syncError === "session_expired" || this.syncError === "load_failed") return "error";
     if (this.dirty || this._saveInFlight) return "saving";
     return "saved";
   }
@@ -174,7 +203,7 @@ class Store {
     const result = await api.getState(force ? undefined : this.updatedAt);
     // Something may have changed while the request was in flight.
     if (this.dirty || !this.user) return;
-    const recovered = this.syncError === "session_expired" || this.syncError === "save_failed";
+    const recovered = this.syncError === "session_expired" || this.syncError === "save_failed" || this.syncError === "load_failed";
     if (recovered) {
       this.syncError = null;
       this.syncErrorCode = null;
