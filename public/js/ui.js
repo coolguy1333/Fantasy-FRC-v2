@@ -1,4 +1,5 @@
 import { LOCK_WINDOW_MS } from "./constants.js";
+import { isDoubleElimEvent, setNumberOf } from "./scoring.js";
 
 export const $ = (id) => document.getElementById(id);
 
@@ -99,9 +100,25 @@ export function formatCountdown(ms) {
 }
 
 export function matchLabel(match) {
-  const level = { qm: "Qual", ef: "Eighth", qf: "Quarter", sf: "Playoff", f: "Final" }[match.comp_level] || match.comp_level;
-  if (match.comp_level === "pm") return "Practice";
-  return `${level} ${match.match_number}`;
+  const set = setNumberOf(match);
+  const replay = match.match_number > 1 ? " (replay)" : "";
+  switch (match.comp_level) {
+    case "qm":
+      return `Qual ${match.match_number}`;
+    case "pm":
+      return "Practice";
+    case "f":
+      return `Final ${match.match_number}`;
+    case "sf":
+      // 2023+ double elimination numbers every bracket game by set; older events had two semifinal sets.
+      return isDoubleElimEvent(match) ? `Playoff Match ${set ?? match.match_number}${replay}` : `Semifinal ${set ?? ""} - Match ${match.match_number}`.replace("  ", " ");
+    case "qf":
+      return `Quarterfinal ${set ?? ""} - Match ${match.match_number}`.replace("  ", " ");
+    case "ef":
+      return `Eighthfinal ${set ?? ""} - Match ${match.match_number}`.replace("  ", " ");
+    default:
+      return `${match.comp_level} ${match.match_number}`;
+  }
 }
 
 export function teamList(alliance) {

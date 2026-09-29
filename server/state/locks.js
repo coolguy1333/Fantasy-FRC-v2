@@ -8,14 +8,33 @@ const MAX_EVENTS_PER_WRITE = 5;
 const MATCH_KEY_RE = /^(\d{4}[a-z0-9]{1,24})_[a-z0-9]+$/i;
 const BRACKET_KEY_RE = /^(\d{4}[a-z0-9]{1,24}):(u[1-7]|l[1-6]|f[1-3])$/;
 
-// Keep in sync with gameIdForMatch in public/js/scoring.js.
+// Keep in sync with gameIdForMatch/findGameMatch in public/js/scoring.js
+// (test/bracket-map.test.js fails if they drift). TBA numbers the 2023+
+// double-elimination bracket by *set*: comp_level "sf", set_number 1-13,
+// match_number 1 (2 = replay). Finals are set 1, match_number 1-3.
 const SF_GAMES = { 1: "u1", 2: "u2", 3: "u3", 4: "u4", 5: "l1", 6: "l2", 7: "u5", 8: "u6", 9: "l3", 10: "l4", 11: "u7", 12: "l5", 13: "l6" };
 const F_GAMES = { 1: "f1", 2: "f2", 3: "f3" };
 
+function setNumberOf(match) {
+  if (Number.isInteger(match.set_number)) return match.set_number;
+  const m = /_(?:qm|ef|qf|sf|f)(\d+)m\d+$/.exec(match.key || "");
+  return m ? Number(m[1]) : null;
+}
+
 function gameIdForMatch(match) {
-  if (match.comp_level === "sf") return SF_GAMES[match.match_number] || null;
+  const year = Number(String(match.key || "").slice(0, 4));
+  if (year && year < 2023) return null;
+  if (match.comp_level === "sf") return SF_GAMES[setNumberOf(match)] || null;
   if (match.comp_level === "f") return F_GAMES[match.match_number] || null;
   return null;
+}
+
+function findGameMatch(matches, gameId) {
+  let found = null;
+  for (const m of matches) {
+    if (gameIdForMatch(m) === gameId && (!found || m.match_number > found.match_number)) found = m;
+  }
+  return found;
 }
 
 function changedKeys(prev, next) {
@@ -70,7 +89,7 @@ async function checkPredictionLocks(prevState, nextState, user, { getMatches, no
     const matches = matchesByEvent[change.eventKey];
     const match = change.matchKey
       ? matches.find((m) => m.key === change.matchKey)
-      : matches.find((m) => gameIdForMatch(m) === change.gameId);
+      : findGameMatch(matches, change.gameId);
     // A bracket game that isn't in TBA yet can't have started.
     if (!match) {
       if (change.matchKey) return fail(400, "unknown_match", change.matchKey);
@@ -81,4 +100,4 @@ async function checkPredictionLocks(prevState, nextState, user, { getMatches, no
   return { ok: true };
 }
 
-module.exports = { checkPredictionLocks, isClosed, gameIdForMatch, LOCK_WINDOW_MS };
+module.exports = { checkPredictionLocks, isClosed, gameIdForMatch, findGameMatch, LOCK_WINDOW_MS };

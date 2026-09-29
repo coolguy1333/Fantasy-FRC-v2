@@ -121,6 +121,17 @@ test("bracket picks are per event and lock with their match", async () => {
   assert.equal((await pick("u1")).status, 400); // legacy un-scoped key
 });
 
+test("playoff bracket picks lock per game using TBA's set numbers", async () => {
+  const pick = (game) => save(alice, (p) => { p.bracketPicksByProfile.alice = { ...(p.bracketPicksByProfile.alice || {}), [`2099playoffs:${game}`]: "red" }; });
+  // sf2 (u2) has been played, sf7 (u5) starts in 20 minutes, sf13 (l6) isn't scheduled yet.
+  const played = await pick("u2");
+  assert.equal(played.status, 403);
+  assert.equal(played.json.error, "prediction_locked");
+  assert.equal((await pick("l2")).status, 403);
+  assert.equal((await pick("u5")).status, 200);
+  assert.equal((await pick("l6")).status, 200);
+});
+
 test("a team admin can remove a member; a stranger can't", async () => {
   await save(alice, (p) => {
     p.groups.t1 = { name: "T1", createdAt: 1 };
