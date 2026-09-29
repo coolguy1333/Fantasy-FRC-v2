@@ -1,20 +1,11 @@
-let currentIdToken = null;
-
-export function setAuthToken(token) {
-  currentIdToken = token || null;
-}
-
-export function getAuthToken() {
-  return currentIdToken;
-}
-
 // A request that never answers would otherwise wedge the save queue forever.
 const REQUEST_TIMEOUT_MS = 20000;
 
+// The browser sends the session cookie itself (same origin), so there is no
+// token to manage here.
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body) headers["Content-Type"] = "application/json";
-  if (currentIdToken) headers.Authorization = `Bearer ${currentIdToken}`;
   const init = { ...options, headers };
   if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") init.signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const res = await fetch(path, init);
@@ -35,8 +26,11 @@ async function request(path, options = {}) {
 
 export const api = {
   runtimeConfig: () => request("/api/runtime-config"),
+  session: () => request("/api/auth/session"),
   verifyGoogle: (idToken) => request("/api/auth/verify", { method: "POST", body: JSON.stringify({ idToken }) }),
-  getState: () => request("/api/state"),
+  logout: () => request("/api/auth/logout", { method: "POST" }),
+  // With `since`, the server answers { unchanged: true } if that is still the current version.
+  getState: (since) => request(since === undefined ? "/api/state" : `/api/state?since=${encodeURIComponent(since)}`),
   // updatedAt is the version this payload was based on; the server answers 409 if it moved on.
   putState: (payload, updatedAt) => request("/api/state", { method: "PUT", body: JSON.stringify({ payload, updatedAt }) }),
   sendFeedback: (entry) => request("/api/feedback", { method: "POST", body: JSON.stringify(entry) }),

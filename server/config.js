@@ -33,6 +33,8 @@ module.exports = {
   publicDir: path.join(__dirname, "..", "public"),
   tbaApiKey: String(process.env.TBA_API_KEY || "").trim(),
   tbaApiBase: "https://www.thebluealliance.com/api/v3",
+  // How long a sign-in lasts. Sliding: active people are never signed out.
+  sessionTtlMs: Number(process.env.SESSION_TTL_DAYS || 30) * 24 * 60 * 60 * 1000,
   googleClientId: String(process.env.GOOGLE_CLIENT_ID || "").trim(),
   requireHttps: bool(process.env.REQUIRE_HTTPS, false),
   localApiOnly: bool(process.env.LOCAL_API_ONLY, false),

@@ -1,8 +1,10 @@
 const path = require("path");
 const express = require("express");
+const compression = require("compression");
 const config = require("./config");
 const apiRoutes = require("./routes");
 const { db } = require("./db");
+const { purgeExpiredSessions } = require("./sessions");
 const { securityHeaders, enforceTransport, enforceLocalApiOnly } = require("./security");
 
 const app = express();
@@ -15,6 +17,7 @@ const app = express();
 app.set("trust proxy", config.trustProxy ? 1 : false);
 app.disable("x-powered-by");
 
+app.use(compression());
 app.use(securityHeaders);
 app.use(enforceTransport);
 
@@ -51,7 +54,17 @@ const server = app.listen(config.port, config.host, () => {
   console.log(`Fantasy FRC listening on http://${config.host}:${config.port} (v${config.appVersion})`);
   if (!config.googleClientId) console.warn("GOOGLE_CLIENT_ID not set - sign-in disabled.");
   if (!config.tbaApiKey) console.warn("TBA_API_KEY not set - live event data disabled.");
+  if (config.googleClientId && !config.bootstrapAdminEmails.length && !config.bootstrapAdminIds.length) {
+    console.warn("GLOBAL_ADMIN_EMAILS not set - nobody can open the Admin tab until you set it to your Google email.");
+  }
+  if (config.googleClientId) {
+    const origin = config.publicUrl || "your site's address";
+    console.log(`Google sign-in: add ${origin} under "Authorized JavaScript origins" for this OAuth client.`);
+  }
 });
+
+purgeExpiredSessions();
+setInterval(purgeExpiredSessions, 60 * 60 * 1000).unref();
 
 // Stop cleanly on SIGTERM/SIGINT: stop accepting new connections, close the
 // database, then exit - so a host that restarts/redeploys the process

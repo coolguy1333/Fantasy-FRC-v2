@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { store } from "./store.js";
 import { $, showTab, notice, closeModal, openModal } from "./ui.js";
-import { initAuth, signOut } from "./views/auth.js";
+import { initGoogleSignIn, signOut } from "./views/auth.js";
 import { initMatchesView } from "./views/matches.js";
 import { initBracketView } from "./views/bracket.js";
 import { initScoreView } from "./views/score.js";
@@ -40,7 +40,7 @@ const REJECTION_MESSAGES = {
 
 function syncMessage() {
   if (store.syncError === "session_expired") {
-    return "Your sign-in expired. Renewing it - if that doesn't work, sign in again. Changes since then are only on this device until you do.";
+    return "You've been signed out. Sign in again to keep saving - changes since then are only on this device until you do.";
   }
   if (store.syncError === "rejected") {
     return REJECTION_MESSAGES[store.syncErrorCode] || "The server rejected your last change, so it was undone.";
@@ -180,23 +180,35 @@ function wireTeamInviteLink() {
   });
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function boot() {
-  const config = await loadRuntimeConfig();
+  // Ask right away whether an earlier visit left a session; don't wait for
+  // Google's script. The page starts in a neutral "signing you in" state
+  // (body.auth-pending) so a returning player never sees a signed-out flash.
+  store.enterGuestMode();
+  const sessionCheck = store.restoreSession().catch((err) => {
+    console.warn("Could not check for a saved sign-in:", err);
+    return false;
+  });
+  const [config] = await Promise.all([loadRuntimeConfig(), Promise.race([sessionCheck, sleep(3000)])]);
+  document.body.classList.remove("auth-pending");
   document.querySelector('meta[name="app-version"]')?.setAttribute("content", config.appVersion || "dev");
 
-  initAuth(config.googleClientId, {
-    onSignIn: () => {
-      renderHeaderProfile();
-      renderAuthPanel();
-      maybeShowOnboarding();
-    }
-  });
-
-  store.subscribe(() => {
+  let wasSignedIn = false;
+  const onStoreChange = () => {
     renderHeaderProfile();
     renderAuthPanel();
     renderSyncStatus();
-  });
+    if (store.user && !wasSignedIn) {
+      wasSignedIn = true;
+      maybeShowOnboarding();
+    } else if (!store.user) {
+      wasSignedIn = false;
+    }
+  };
+  store.subscribe(onStoreChange);
+  initGoogleSignIn(config.googleClientId);
 
   initMatchesView({ tbaConfigured: config.tbaConfigured !== false });
   initBracketView();
@@ -211,9 +223,7 @@ async function boot() {
   wireTeamInviteLink();
   warnBeforeLosingUnsavedChanges();
 
-  renderHeaderProfile();
-  renderAuthPanel();
-  renderSyncStatus();
+  onStoreChange();
 }
 
 boot();

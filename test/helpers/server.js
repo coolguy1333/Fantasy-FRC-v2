@@ -30,15 +30,15 @@ async function startServer(env = {}) {
     await new Promise((r) => setTimeout(r, 50));
   }
 
-  async function call(method, urlPath, { tok, body, headers = {} } = {}) {
+  async function call(method, urlPath, { tok, body, headers = {}, cookie } = {}) {
     const res = await fetch(base + urlPath, {
       method,
-      headers: { ...(body ? { "content-type": "application/json" } : {}), ...(tok ? { authorization: `Bearer ${tok}` } : {}), ...headers },
+      headers: { ...(body ? { "content-type": "application/json" } : {}), ...(tok ? { authorization: `Bearer ${tok}` } : {}), ...(cookie ? { cookie } : {}), ...headers },
       body: body ? JSON.stringify(body) : undefined
     });
     let json = null;
     try { json = await res.json(); } catch { /* not json */ }
-    return { status: res.status, json, headers: res.headers };
+    return { status: res.status, json, headers: res.headers, setCookie: res.headers.get("set-cookie") || "" };
   }
 
   return {

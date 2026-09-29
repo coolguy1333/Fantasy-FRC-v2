@@ -1,5 +1,6 @@
 const rateLimit = require("express-rate-limit");
 const config = require("./config");
+const { readSessionId } = require("./sessions");
 
 function makeLimiter(max) {
   return rateLimit({ windowMs: 60 * 1000, max, standardHeaders: true, legacyHeaders: false });
@@ -64,7 +65,17 @@ function hostOf(url) {
 
 function requireSameOrigin(req, res, next) {
   const origin = req.headers.origin;
-  if (!origin) return next(); // same-origin requests may omit Origin
+  if (!origin) {
+    // Browsers always send Origin on writes. Without it, only allow callers
+    // that aren't using the session cookie (API clients with a bearer token) -
+    // a cookie is sent automatically by any site, so it must come with proof.
+    const usesCookie = req.authVia === "cookie" || (req.authVia === undefined && Boolean(readSessionId(req)));
+    const site = req.headers["sec-fetch-site"];
+    if (usesCookie && site !== "same-origin" && site !== "none") {
+      return res.status(403).json({ error: "cross_origin_request_denied" });
+    }
+    return next();
+  }
   const originHost = hostOf(origin);
   const allowed = [req.headers.host, hostOf(config.publicUrl)];
   // A trusted proxy may rewrite Host but tells us the original in X-Forwarded-Host.

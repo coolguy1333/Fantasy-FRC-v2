@@ -6,6 +6,7 @@ const { checkAuthorization, isGlobalAdmin } = require("./state/authorize");
 const { redactForNonAdmin, restoreAdminOnlyDomains } = require("./state/redact");
 const { checkPredictionLocks } = require("./state/locks");
 const { verifyGoogleIdToken, requireAuth } = require("./auth");
+const { createSession, lookupSession, deleteSession, readSessionId, setSessionCookie, clearSessionCookie } = require("./sessions");
 const { limiters, requireSameOrigin } = require("./security");
 const { fetchTba, tbaProxyHandler, EVENT_KEY_RE, YEAR_RE } = require("./tba");
 
@@ -24,17 +25,35 @@ router.use((_req, res, next) => {
   next();
 });
 
-router.post("/auth/verify", limiters.auth, smallJson, async (req, res) => {
+// Google proves who someone is once; from then on the session cookie does.
+router.post("/auth/verify", limiters.auth, requireSameOrigin, smallJson, async (req, res) => {
   const idToken = String(req.body?.idToken || "").trim();
   if (!idToken) return res.status(400).json({ error: "missing_id_token" });
   try {
     const user = await verifyGoogleIdToken(idToken);
     const { state } = readState();
+    setSessionCookie(req, res, createSession(user));
     res.json({ ok: true, user, isGlobalAdmin: isGlobalAdmin(state, user) });
   } catch (err) {
     const message = String(err.message || "token_verification_failed");
     res.status(message === "google_client_id_not_configured" ? 500 : 401).json({ error: message });
   }
+});
+
+// Who is signed in right now? Answers 200 with user: null rather than 401, so
+// a signed-out visitor doesn't get an error in their console on every page load.
+router.get("/auth/session", limiters.read, (req, res) => {
+  const id = readSessionId(req);
+  const session = lookupSession(id);
+  if (!session) return res.json({ user: null, isGlobalAdmin: false });
+  if (session.renewed) setSessionCookie(req, res, id);
+  res.json({ user: session.user, isGlobalAdmin: isGlobalAdmin(readState().state, session.user) });
+});
+
+router.post("/auth/logout", limiters.auth, requireSameOrigin, (req, res) => {
+  deleteSession(readSessionId(req));
+  clearSessionCookie(req, res);
+  res.json({ ok: true });
 });
 
 router.get("/runtime-config", (_req, res) => {
@@ -55,6 +74,9 @@ router.get("/health", limiters.read, (_req, res) => {
 
 router.get("/state", limiters.read, auth, (req, res) => {
   const { state, updatedAt } = readState();
+  // Clients poll with the version they already have; most of the time nothing
+  // changed, and answering with a few bytes beats resending the whole document.
+  if (req.query.since !== undefined && Number(req.query.since) === updatedAt) return res.json({ unchanged: true, updatedAt });
   const payload = isGlobalAdmin(state, req.authUser) ? state : redactForNonAdmin(state);
   res.json({ payload, updatedAt });
 });

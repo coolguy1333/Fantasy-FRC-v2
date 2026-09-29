@@ -110,3 +110,6 @@ nav { display: flex; gap: 4px; margin-left: auto; }
   nav.nav-open { display: flex; }
   .header-inner { position: relative; }
 }
+
+/* Until the saved-session check finishes, don't flash the signed-out sign-in panel at a returning player. */
+.auth-pending .auth-panel { visibility: hidden; }
