@@ -1,39 +1,18 @@
 import { store } from "../store.js";
-import { $, el, isLocked, makeGuardedRender } from "../ui.js";
+import { el, formatMatchTime, isLocked, matchStartMs, teamNumbers, fill } from "../ui.js";
 import { BRACKET_GAMES, BRACKET_POINTS_BY_GAME } from "../constants.js";
-import { currentEventMatches, currentEventKey } from "./matches.js";
-import { bracketEntriesForEvent, bracketKey, gameIdForMatch, matchWinner, scoreBracket } from "../scoring.js";
+import { bracketEntriesForEvent, bracketKey, findGameMatch, isPlayed, matchWinner, scoreBracket } from "../scoring.js";
+import { allianceButton, chip, resultLine, scoreGuessField } from "./cards.js";
 
-// Picks and score guesses are stored per event ("<eventKey>:<gameId>").
-function picksFor(profileId) {
-  return bracketEntriesForEvent(store.state.bracketPicksByProfile[profileId], currentEventKey());
-}
-
-function scoresFor(profileId) {
-  return bracketEntriesForEvent(store.state.bracketScoreByProfile[profileId], currentEventKey());
-}
-
-// Same lock rule as match predictions (the server enforces it too).
-function isBracketLocked(gameId) {
-  const match = currentEventMatches().find((m) => gameIdForMatch(m) === gameId);
-  return Boolean(match) && isLocked(match);
-}
-
-function setPick(gameId, winner) {
-  const eventKey = currentEventKey();
-  if (!eventKey || isBracketLocked(gameId)) return;
+function setPick(eventKey, gameId, color) {
   store.mutate((state) => {
     const id = store.profileId;
     state.bracketPicksByProfile[id] = state.bracketPicksByProfile[id] || {};
-    state.bracketPicksByProfile[id][bracketKey(eventKey, gameId)] = winner;
+    state.bracketPicksByProfile[id][bracketKey(eventKey, gameId)] = color;
   });
 }
 
-function setScoreGuess(gameId, value) {
-  const eventKey = currentEventKey();
-  if (!eventKey || isBracketLocked(gameId)) return;
-  const guess = value === "" ? null : Math.min(999, Math.max(0, Math.round(Number(value))));
-  if (guess === (scoresFor(store.profileId)[gameId] ?? null)) return;
+function setScoreGuess(eventKey, gameId, guess) {
   store.mutate((state) => {
     const id = store.profileId;
     state.bracketScoreByProfile[id] = state.bracketScoreByProfile[id] || {};
@@ -41,78 +20,78 @@ function setScoreGuess(gameId, value) {
   });
 }
 
-function renderGameCard(game) {
-  const matches = currentEventMatches();
-  const match = matches.find((m) => gameIdForMatch(m) === game.id);
+function gameCard(game, ctx) {
+  const { eventKey, matches, picks, scores, graded } = ctx;
+  const match = findGameMatch(matches, game.id);
+  const red = teamNumbers(match?.alliances?.red);
+  const blue = teamNumbers(match?.alliances?.blue);
+  const decided = match ? isPlayed(match) : false;
+  // A game can't be picked until we know who is playing in it, and not once it's close to starting.
+  const teamsKnown = red.length > 0 || blue.length > 0;
+  const locked = Boolean(match) && !decided && isLocked(match);
+  const open = Boolean(match) && teamsKnown && !decided && !locked;
   const winner = match ? matchWinner(match) : null;
-  const locked = isBracketLocked(game.id);
-  const pick = picksFor(store.profileId)[game.id];
-  const scoreGuess = scoresFor(store.profileId)[game.id];
+  const pick = picks[game.id];
+  const result = graded.byGame[game.id];
+  const start = match ? matchStartMs(match) : null;
 
-  const card = el("div", { class: `bracket-card ${winner ? "decided" : ""}` });
-  card.append(el("div", { class: "bracket-card-head" }, [el("span", {}, game.id.toUpperCase()), el("span", { class: "muted" }, `+${BRACKET_POINTS_BY_GAME[game.id]} pts`)]));
+  const status = decided ? chip("Final", "muted") : locked ? chip("Locked", "locked") : open ? chip(start ? `Starts ${formatMatchTime(start)}` : "Open", "open") : chip("Waiting for earlier games", "muted");
 
-  const btnRow = el("div", { class: "alliance-row" });
-  for (const color of ["red", "blue"]) {
-    btnRow.append(
-      el(
-        "button",
-        {
-          class: `alliance-btn alliance-${color} ${pick === color ? "picked" : ""}`,
-          disabled: locked || winner ? "disabled" : null,
-          onclick: () => setPick(game.id, color)
-        },
-        color === "red" ? "Red" : "Blue"
-      )
-    );
-  }
-  card.append(btnRow);
-
-  if (winner && winner !== "tie") {
-    card.append(el("div", { class: `bracket-result result-${winner}` }, `${winner === "red" ? "Red" : "Blue"} won`));
-  } else if (!match) {
-    card.append(el("div", { class: "muted small" }, "Not yet in bracket"));
-  }
-
+  const card = el("div", { class: `bracket-card state-${decided ? "played" : locked ? "locked" : open ? "open" : "tbd"}` });
   card.append(
-    el("input", {
-      type: "number",
-      min: "0",
-      max: "999",
-      inputmode: "numeric",
-      "aria-label": `Guess the winning score for game ${game.id.toUpperCase()}`,
-      class: "score-guess-input",
-      placeholder: "Winner score guess",
-      value: scoreGuess ?? "",
-      disabled: locked || winner ? "disabled" : null,
-      onchange: (e) => setScoreGuess(game.id, e.target.value)
-    })
+    el("div", { class: "bracket-card-head" }, [
+      el("span", { class: "bracket-game-label" }, game.label),
+      el("span", { class: "muted small" }, `+${BRACKET_POINTS_BY_GAME[game.id]} pts`)
+    ]),
+    el("div", { class: "bracket-status" }, status)
   );
 
+  const buttons = el("div", { class: "alliance-row" });
+  for (const color of ["red", "blue"]) {
+    buttons.append(
+      allianceButton({
+        color,
+        teams: color === "red" ? red : blue,
+        score: decided ? match.alliances[color].score : null,
+        picked: pick === color,
+        won: decided && winner === color,
+        disabled: !open,
+        onPick: () => setPick(eventKey, game.id, color)
+      })
+    );
+  }
+  card.append(buttons);
+
+  if (open) {
+    card.append(
+      scoreGuessField({
+        value: scores[game.id],
+        label: `Winning score guess for ${game.label}`,
+        onCommit: (guess) => setScoreGuess(eventKey, game.id, guess)
+      })
+    );
+  } else if (decided && winner !== "tie") {
+    const made = Boolean(pick) || typeof scores[game.id] === "number";
+    card.append(resultLine({ made, breakdown: result || { correct: false, points: 0, pickPoints: 0, scorePoints: 0, streakBonus: 0 }, scoreGuess: scores[game.id] }));
+  } else if (locked && pick) {
+    card.append(el("div", { class: "result result-none" }, "Locked in"));
+  }
   return card;
 }
 
-function renderNow() {
-  const container = $("playoffBracket");
-  if (!container) return;
-  container.innerHTML = "";
-  if (!currentEventMatches().length) return;
+export function renderBracket(container, { eventKey, matches }) {
+  const me = store.profileId;
+  const picks = bracketEntriesForEvent(store.state.bracketPicksByProfile[me], eventKey);
+  const scores = bracketEntriesForEvent(store.state.bracketScoreByProfile[me], eventKey);
+  const graded = scoreBracket(matches, picks, scores);
+  const ctx = { eventKey, matches, picks, scores, graded };
 
-  container.append(el("h3", {}, "Playoff Bracket Pick'em"));
+  fill(container, 
+    el("p", { class: "muted bracket-intro" }, "Pick each playoff game's winner once its alliances are set. Picks lock 10 minutes before a game starts, and later rounds are worth more points.")
+  );
   const rounds = [...new Set(BRACKET_GAMES.map((g) => g.round))];
   for (const round of rounds) {
     const games = BRACKET_GAMES.filter((g) => g.round === round);
-    container.append(el("div", { class: "bracket-round" }, [el("h4", {}, round), el("div", { class: "bracket-round-cards" }, games.map(renderGameCard))]));
+    container.append(el("section", { class: "bracket-round" }, [el("h4", {}, round), el("div", { class: "bracket-round-cards" }, games.map((g) => gameCard(g, ctx)))]));
   }
-}
-
-const render = makeGuardedRender(() => [$("playoffBracket")], renderNow);
-
-export function currentBracketSummary() {
-  return scoreBracket(currentEventMatches(), picksFor(store.profileId), scoresFor(store.profileId));
-}
-
-export function initBracketView() {
-  store.subscribe(render);
-  setInterval(render, 30000);
 }

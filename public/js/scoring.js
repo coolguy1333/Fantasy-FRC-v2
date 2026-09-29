@@ -84,7 +84,7 @@ export function scorePredictions(matches, predictionsByMatch = {}) {
 
     const total = earned + streakBonus + scorePoints;
     points += total;
-    byMatch[match.key] = { correct: allianceCorrect, points: round1(total), streakBonus, scorePoints };
+    byMatch[match.key] = { correct: allianceCorrect, points: round1(total), pickPoints: allianceCorrect ? 1 : 0, streakBonus, scorePoints };
   }
 
   const eventKeys = new Set(matches.map((m) => m.key));
@@ -151,17 +151,18 @@ export function scoreBracket(matches, picksByGame = {}, scoresByGame = {}) {
     const winner = matchWinner(match);
     if (!winner || winner === "tie") continue;
     gradedGames += 1;
-    let earned = 0;
+    let pickPoints = 0;
+    let scorePoints = 0;
     const pick = picksByGame[gameId];
     const correct = Boolean(pick) && pick === winner;
     if (correct) {
-      earned += BRACKET_POINTS_BY_GAME[gameId] || 1;
+      pickPoints = BRACKET_POINTS_BY_GAME[gameId] || 1;
       correctPicks += 1;
     }
     const scoreGuess = scoresByGame[gameId];
-    if (typeof scoreGuess === "number") earned += scoreGuessPoints(scoreGuess, winnerScore(match, winner));
-    points += earned;
-    byGame[gameId] = { correct, picked: Boolean(pick), points: round1(earned) };
+    if (typeof scoreGuess === "number") scorePoints = scoreGuessPoints(scoreGuess, winnerScore(match, winner));
+    points += pickPoints + scorePoints;
+    byGame[gameId] = { correct, picked: Boolean(pick), points: round1(pickPoints + scorePoints), pickPoints, scorePoints, streakBonus: 0 };
   }
 
   return { points: round1(points), correctPicks, gradedGames, byGame };
@@ -197,4 +198,26 @@ export function rankRows(rows) {
     const tied = sorted.some((other, i) => i !== index && other.points === row.points);
     return { ...row, rank, tied };
   });
+}
+
+// One row per player who has a profile or any picks (guest excluded), scored for one event.
+export function playerRows(state, matches, eventKey) {
+  const ids = new Set([...Object.keys(state.profiles || {}), ...Object.keys(state.predictionsByProfile || {}), ...Object.keys(state.bracketPicksByProfile || {})]);
+  ids.delete("guest");
+  return [...ids].map((id) => {
+    const totals = totalsFor(state, id, matches, eventKey);
+    return { id, name: state.profiles?.[id]?.name || "Player", teamId: state.profileTeams?.[id] || null, ...totals };
+  });
+}
+
+// Teams by total points, with size and average so a big team doesn't just win by being big.
+export function teamRowsFrom(players, groups = {}) {
+  const teams = {};
+  for (const player of players) {
+    if (!player.teamId || !groups[player.teamId]) continue;
+    teams[player.teamId] = teams[player.teamId] || { id: player.teamId, name: groups[player.teamId].name || player.teamId, points: 0, members: 0 };
+    teams[player.teamId].points += player.points;
+    teams[player.teamId].members += 1;
+  }
+  return Object.values(teams).map((t) => ({ ...t, points: round1(t.points), average: round1(t.points / t.members) }));
 }

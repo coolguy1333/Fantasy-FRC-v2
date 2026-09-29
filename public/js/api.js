@@ -33,6 +33,9 @@ export const api = {
   getState: (since) => request(since === undefined ? "/api/state" : `/api/state?since=${encodeURIComponent(since)}`),
   // updatedAt is the version this payload was based on; the server answers 409 if it moved on.
   putState: (payload, updatedAt) => request("/api/state", { method: "PUT", body: JSON.stringify({ payload, updatedAt }) }),
+  // Team codes are checked by the server: preview shows which team a code is for, join does it.
+  previewTeam: (code) => request("/api/teams/preview", { method: "POST", body: JSON.stringify({ code }) }),
+  joinTeam: (code) => request("/api/teams/join", { method: "POST", body: JSON.stringify({ code }) }),
   sendFeedback: (entry) => request("/api/feedback", { method: "POST", body: JSON.stringify(entry) }),
 
   tbaEventsForYear: (year) => request(`/api/tba/events/${year}/simple`),

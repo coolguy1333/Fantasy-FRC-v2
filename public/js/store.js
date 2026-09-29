@@ -155,6 +155,12 @@ class Store {
     this.emit();
   }
 
+  // Pull the server's version now (after something the server changed on our behalf, like joining a team).
+  async reload() {
+    if (this.dirty) await this._persistRemote();
+    if (!this.dirty) await this.loadRemote({ force: true });
+  }
+
   // "guest" | "saving" | "saved" | "error" - what the save indicator shows.
   get status() {
     if (!this.user) return "guest";
