@@ -4,34 +4,26 @@
   "memory_mb": 256,
   "env": [
     {
-      "name": "TBA_API_KEY",
-      "description": "The Blue Alliance API key, used to fetch live event/match data. Get one free at thebluealliance.com/account. Leave blank to disable live event data.",
-      "secret": true,
-      "required": false
-    },
-    {
       "name": "GOOGLE_CLIENT_ID",
-      "description": "Google OAuth web client ID, used for Google sign-in. Leave blank to run guest-only, with no sign-in.",
+      "description": "Turns on Google sign-in. In Google Cloud Console create an OAuth client of type 'Web application', add this site's address under 'Authorized JavaScript origins', and paste its Client ID here. No client secret is needed. Leave blank to run guest-only.",
       "required": false
     },
     {
       "name": "GLOBAL_ADMIN_EMAILS",
-      "description": "Comma-separated email addresses to bootstrap as global admin on first run.",
+      "description": "Your Google account email (comma-separated for several). These accounts get the Admin tab: teams, feedback and settings. You can add more admins later inside the app. Without this, nobody can open the Admin tab.",
       "required": false
     },
     {
-      "name": "GLOBAL_ADMIN_IDS",
-      "description": "Comma-separated Google account 'sub' IDs to bootstrap as global admin on first run.",
+      "name": "TBA_API_KEY",
+      "description": "Needed to load events and matches. Get a free 'Read API Key' at thebluealliance.com/account. Without it the app opens but has no events to show.",
+      "secret": true,
       "required": false
     },
     {
       "name": "REQUIRE_HTTPS",
-      "description": "Reject non-HTTPS requests. Safe to leave on since the app always sits behind the platform's HTTPS reverse proxy.",
+      "description": "Reject plain-HTTP requests. Safe to leave on: the app always sits behind the platform's HTTPS proxy.",
       "default": "true",
-      "choices": [
-        "true",
-        "false"
-      ]
+      "choices": ["true", "false"]
     }
   ]
 }

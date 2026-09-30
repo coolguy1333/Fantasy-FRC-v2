@@ -1,4 +1,4 @@
-import { api, setAuthToken, getAuthToken } from "./api.js";
+import { api } from "./api.js";
 import { GUEST_PROFILE_ID, POLL_INTERVAL_MS } from "./constants.js";
 
 const GUEST_STORAGE_KEY = "ffrc_guest_state_v1";
@@ -53,6 +53,22 @@ function saveGuestState(state) {
   }
 }
 
+// Picks made as a guest, so signing in can offer to bring them along.
+export function readGuestPicks() {
+  const guest = loadGuestState();
+  const own = (domain) => guest[domain]?.[GUEST_PROFILE_ID] || {};
+  return { predictions: own("predictionsByProfile"), bracketPicks: own("bracketPicksByProfile"), bracketScores: own("bracketScoreByProfile") };
+}
+
+export function removeGuestPicks({ predictions = [], bracketPicks = [], bracketScores = [] }) {
+  const guest = loadGuestState();
+  const drop = (domain, keys) => keys.forEach((k) => guest[domain]?.[GUEST_PROFILE_ID] && delete guest[domain][GUEST_PROFILE_ID][k]);
+  drop("predictionsByProfile", predictions);
+  drop("bracketPicksByProfile", bracketPicks);
+  drop("bracketScoreByProfile", bracketScores);
+  saveGuestState(guest);
+}
+
 class Store {
   constructor() {
     this.user = null; // { sub, email, name, picture } | null
@@ -100,35 +116,58 @@ class Store {
     this._clearRetry();
   }
 
-  async signIn(idToken) {
-    const previous = { token: getAuthToken(), user: this.user, isGlobalAdmin: this.isGlobalAdmin };
-    setAuthToken(idToken);
+  // Called once at startup: is there already a session cookie from an earlier visit?
+  async restoreSession() {
+    const result = await api.session();
+    if (!result.user) return false;
+    this.user = result.user;
+    this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
+    if (!(await this._loadAfterSignIn(true))) return false;
+    this.startPolling();
+    return true;
+  }
+
+  // Load the document right after we know who someone is. A hiccup here must not
+  // make a signed-in person look signed out, so it becomes a retrying banner - only
+  // a 401 (the session vanished between the two calls) means they aren't signed in.
+  async _loadAfterSignIn(force) {
     try {
-      const result = await api.verifyGoogle(idToken);
-      if (previous.user && previous.user.sub !== result.user.sub) this._resetSync(); // never replay one account's changes onto another
-      this.user = result.user;
-      this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
-      if (this.dirty) {
-        // A local change from before this sign-in (e.g. the previous token
-        // expired mid-session) - push it rather than pulling the server's
-        // version over it and losing it.
-        await this._persistRemote();
-      } else {
-        await this.loadRemote({ force: !previous.user });
-      }
+      await this.loadRemote({ force });
     } catch (err) {
-      // Don't leave a half signed-in session behind (or drop a still-usable one).
-      setAuthToken(previous.token);
+      if (err?.status === 401) {
+        this.user = null;
+        this.isGlobalAdmin = false;
+        return false;
+      }
+      this.syncError = "load_failed";
+      this.emit();
+    }
+    return true;
+  }
+
+  // Google vouches for the person once; the server answers by setting a
+  // long-lived session cookie, so this only happens when signed out.
+  async signIn(idToken) {
+    const previous = { user: this.user, isGlobalAdmin: this.isGlobalAdmin };
+    const result = await api.verifyGoogle(idToken); // if this fails nothing has changed
+    if (previous.user && previous.user.sub !== result.user.sub) this._resetSync(); // never replay one account's changes onto another
+    this.user = result.user;
+    this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
+    if (this.dirty) {
+      // A local change from before this sign-in (e.g. the session ended
+      // mid-use) - push it rather than pulling the server's version over it.
+      await this._persistRemote();
+    } else if (!(await this._loadAfterSignIn(!previous.user))) {
       this.user = previous.user;
       this.isGlobalAdmin = previous.isGlobalAdmin;
-      throw err;
+      throw new Error("session_not_established");
     }
     this.startPolling();
     return this.user;
   }
 
   signOut() {
-    setAuthToken(null);
+    api.logout().catch(() => {}); // revoke the session on the server; the local reset below doesn't depend on it
     this.user = null;
     this.isGlobalAdmin = false;
     this._resetSync();
@@ -140,47 +179,72 @@ class Store {
 
   enterGuestMode() {
     this.user = null;
-    setAuthToken(null);
     this._resetSync();
     this.state = loadGuestState();
     this.emit();
   }
 
+  // Pull the server's version now (after something the server changed on our behalf, like joining a team).
+  async reload() {
+    if (this.dirty) await this._persistRemote();
+    if (!this.dirty) await this.loadRemote({ force: true });
+  }
+
+  // "guest" | "saving" | "saved" | "error" - what the save indicator shows.
+  get status() {
+    if (!this.user) return "guest";
+    if (this.syncError === "save_failed" || this.syncError === "session_expired" || this.syncError === "load_failed") return "error";
+    if (this.dirty || this._saveInFlight) return "saving";
+    return "saved";
+  }
+
   async loadRemote({ force = false } = {}) {
     if (this.dirty) return; // never clobber an unsaved local change
-    const { payload, updatedAt } = await api.getState();
+    const result = await api.getState(force ? undefined : this.updatedAt);
     // Something may have changed while the request was in flight.
     if (this.dirty || !this.user) return;
-    const recovered = this.syncError === "session_expired" || this.syncError === "save_failed";
+    const recovered = this.syncError === "session_expired" || this.syncError === "save_failed" || this.syncError === "load_failed";
     if (recovered) {
       this.syncError = null;
       this.syncErrorCode = null;
     }
-    if (force || updatedAt !== this.updatedAt) {
-      this.state = payload;
-      this.updatedAt = updatedAt;
+    if (result.unchanged) {
+      if (recovered) this.emit();
+      return;
+    }
+    if (force || result.updatedAt !== this.updatedAt) {
+      this.state = result.payload;
+      this.updatedAt = result.updatedAt;
       this.emit();
     } else if (recovered) {
       this.emit();
     }
   }
 
+  // Poll while the tab is in view, and catch up the moment it comes back.
   startPolling() {
     this.stopPolling();
-    this._pollHandle = setInterval(() => {
-      if (!this.user || this._saveInFlight || this.dirty) return;
+    const poll = () => {
+      if (document.hidden || !this.user || this._saveInFlight || this.dirty) return;
       this.loadRemote().catch((err) => {
         if (err?.status === 401) {
           this.syncError = "session_expired";
           this.emit();
         }
       });
-    }, POLL_INTERVAL_MS);
+    };
+    this._pollHandle = setInterval(poll, POLL_INTERVAL_MS);
+    this._onVisible = () => {
+      if (!document.hidden) poll();
+    };
+    document.addEventListener("visibilitychange", this._onVisible);
   }
 
   stopPolling() {
     if (this._pollHandle) clearInterval(this._pollHandle);
     this._pollHandle = null;
+    if (this._onVisible) document.removeEventListener("visibilitychange", this._onVisible);
+    this._onVisible = null;
   }
 
   _clearRetry() {

@@ -9,10 +9,12 @@
     "start": "node server/index.js",
     "dev": "NODE_ENV=development node server/index.js",
     "check": "node --check server/index.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:e2e": "node test/e2e/run.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
+    "compression": "^1.8.2",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",

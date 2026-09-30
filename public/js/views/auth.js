@@ -1,69 +1,11 @@
 import { store } from "../store.js";
 import { notice } from "../ui.js";
 
-const TOKEN_KEY = "ffrc_id_token";
-const REFRESH_MARGIN_MS = 5 * 60 * 1000;
-const RENEWAL_THROTTLE_MS = 60 * 1000;
 const SCRIPT_WAIT_WARNING_TRIES = 75; // x 200ms = 15s
+const RENEWAL_THROTTLE_MS = 60 * 1000;
 
 let googleReady = false;
-let onSignedIn = () => {};
-let refreshTimer = null;
-let lastRenewalAt = 0;
-
-// Google ID tokens are short-lived (~1h) and only held in memory by the store,
-// so without this a page refresh or the hour rolling over signs the user out.
-// The token is kept in sessionStorage (this tab only) purely to survive
-// reloads; One Tap auto-select handles returning visits and renewals.
-function tokenExpiryMs(token) {
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return Number(payload.exp) * 1000;
-  } catch {
-    return 0;
-  }
-}
-
-function readStoredToken() {
-  try {
-    const token = sessionStorage.getItem(TOKEN_KEY);
-    if (token && tokenExpiryMs(token) - Date.now() > 60 * 1000) return token;
-    sessionStorage.removeItem(TOKEN_KEY);
-  } catch {
-    /* storage unavailable */
-  }
-  return null;
-}
-
-function storeToken(token) {
-  try {
-    sessionStorage.setItem(TOKEN_KEY, token);
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-function clearToken() {
-  try {
-    sessionStorage.removeItem(TOKEN_KEY);
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-function scheduleRefresh(token) {
-  clearTimeout(refreshTimer);
-  const delay = Math.max(tokenExpiryMs(token) - Date.now() - REFRESH_MARGIN_MS, 30 * 1000);
-  refreshTimer = setTimeout(requestRenewal, delay);
-}
-
-// Asks Google for a fresh ID token; with auto-select this is silent when the
-// person is still signed in to Google, and shows One Tap otherwise.
-function requestRenewal() {
-  if (!googleReady || Date.now() - lastRenewalAt < RENEWAL_THROTTLE_MS) return;
-  lastRenewalAt = Date.now();
-  window.google.accounts.id.prompt();
-}
+let lastPromptAt = 0;
 
 function describe(err) {
   const detail = err?.detail?.detail;
@@ -77,43 +19,35 @@ function renderButton(hostId) {
   window.google.accounts.id.renderButton(host, { theme: "outline", size: "large", text: "signin_with" });
 }
 
-// Returns null on success, or the error. `restoring` is a sign-in attempt with a
-// token we saved earlier, where failing quietly and falling back to a fresh
-// prompt is the right thing (unless the server just couldn't be reached).
-async function handleCredential(response, { restoring = false } = {}) {
-  const wasSignedIn = Boolean(store.user);
-  try {
-    await store.signIn(response.credential);
-  } catch (err) {
-    console.error("Sign-in failed:", err);
-    // Only a token the server actually rejected is worth forgetting.
-    if (err?.status === 401) clearToken();
-    if (!restoring || err?.status !== 401) {
-      notice("authNotice", `Sign-in failed (${describe(err)}). Try again, or keep playing as a guest.`, "error");
-    }
-    return err;
-  }
-  notice("authNotice", "");
-  storeToken(response.credential);
-  scheduleRefresh(response.credential);
-  if (!wasSignedIn) onSignedIn();
-  return null;
-}
-
-async function restoreSession() {
-  const stored = readStoredToken();
-  if (stored && !(await handleCredential({ credential: stored }, { restoring: true }))) return;
+// One Tap: signs a returning person straight back in when their Google session
+// allows it. Throttled so a failing sign-in can't turn into a prompt loop.
+function promptSignIn() {
+  if (!googleReady || store.user || Date.now() - lastPromptAt < RENEWAL_THROTTLE_MS) return;
+  lastPromptAt = Date.now();
   window.google.accounts.id.prompt();
 }
 
-export function initAuth(clientId, { onSignIn } = {}) {
-  onSignedIn = onSignIn || (() => {});
-  store.enterGuestMode();
+async function handleCredential(response) {
+  try {
+    await store.signIn(response.credential);
+    notice("authNotice", "");
+  } catch (err) {
+    console.error("Sign-in failed:", err);
+    notice("authNotice", `Sign-in failed (${describe(err)}). Try again, or keep playing as a guest.`, "error");
+  }
+}
+
+// Sets up Google's button and One Tap. Being signed in does not depend on any of
+// this - a saved session is restored by the store without waiting for Google.
+export function initGoogleSignIn(clientId) {
   if (!clientId) return;
 
-  // A save or poll that gets a 401 means the token expired: ask for a new one.
+  // The session ended (expired or signed out elsewhere): offer a quick way back in.
   store.subscribe(() => {
-    if (store.syncError === "session_expired") requestRenewal();
+    if (store.syncError === "session_expired") {
+      lastPromptAt = 0;
+      promptSignIn();
+    }
   });
 
   let tries = 0;
@@ -134,15 +68,12 @@ export function initAuth(clientId, { onSignIn } = {}) {
     window.google.accounts.id.initialize({ client_id: clientId, callback: handleCredential, auto_select: true });
     googleReady = true;
     renderButton("googleSignInHost");
-    renderButton("googleGateHost");
-    restoreSession();
+    promptSignIn();
   };
   tryInit();
 }
 
 export function signOut() {
-  clearTimeout(refreshTimer);
-  clearToken();
   if (googleReady) window.google?.accounts?.id?.disableAutoSelect();
   store.signOut();
 }

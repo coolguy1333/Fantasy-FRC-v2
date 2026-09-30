@@ -34,9 +34,13 @@ together, and [`docs/API.md`](./docs/API.md) for the REST API.
   flag and polling - it exists specifically to stop a failed/expired save
   from being silently overwritten by the next poll. See
   [`docs/ARCHITECTURE.md#sync-and-offline-safety`](./docs/ARCHITECTURE.md#sync-and-offline-safety).
-- Run the app locally and click through the flow you changed. The tests cover
-  the server only; the frontend is checked by hand (see
-  [Testing](./docs/ARCHITECTURE.md#testing) in the architecture doc).
+- Run the app locally and click through the flow you changed. `npm run test:e2e`
+  drives the real app in headless Chromium (Google and TBA stubbed) and is worth
+  running after touching `public/`; it needs Playwright, which isn't an app
+  dependency (`npm i -D playwright && npx playwright install chromium`, or set
+  `CHROMIUM_PATH`). `test/e2e/rig.js` also seeds a small demo league, handy for
+  taking screenshots on desktop and phone-sized viewports - look at your change, don't
+  just trust the tests (rendering it is how "null" text and buried buttons were found).
 - If a view has text inputs, render through `makeGuardedRender` (`ui.js`) so a
   timer or sync doesn't wipe what someone is typing.
 

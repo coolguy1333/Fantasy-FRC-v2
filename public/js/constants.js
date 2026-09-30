@@ -6,24 +6,25 @@ export const SCORE_FULL_POINT_MARGIN = 5; // within this many points -> +1
 export const SCORE_HALF_POINT_MARGIN = 25; // within this many points -> +0.5
 export const GUEST_PROFILE_ID = "guest";
 
-// Playoff bracket game order + point weight per correctly-picked game.
+// Playoff bracket game order (2023+ double elimination). `label` is the game's
+// number in the official bracket - what people see on the field and on TBA.
 export const BRACKET_GAMES = [
-  { id: "u1", round: "Upper Round 1" },
-  { id: "u2", round: "Upper Round 1" },
-  { id: "u3", round: "Upper Round 1" },
-  { id: "u4", round: "Upper Round 1" },
-  { id: "l1", round: "Lower Round 1" },
-  { id: "l2", round: "Lower Round 1" },
-  { id: "u5", round: "Upper Round 2" },
-  { id: "u6", round: "Upper Round 2" },
-  { id: "l3", round: "Lower Round 2" },
-  { id: "l4", round: "Lower Round 2" },
-  { id: "u7", round: "Upper Final" },
-  { id: "l5", round: "Lower Round 3" },
-  { id: "l6", round: "Lower Final" },
-  { id: "f1", round: "Finals" },
-  { id: "f2", round: "Finals" },
-  { id: "f3", round: "Finals" }
+  { id: "u1", round: "Upper Round 1", label: "Match 1" },
+  { id: "u2", round: "Upper Round 1", label: "Match 2" },
+  { id: "u3", round: "Upper Round 1", label: "Match 3" },
+  { id: "u4", round: "Upper Round 1", label: "Match 4" },
+  { id: "l1", round: "Lower Round 1", label: "Match 5" },
+  { id: "l2", round: "Lower Round 1", label: "Match 6" },
+  { id: "u5", round: "Upper Round 2", label: "Match 7" },
+  { id: "u6", round: "Upper Round 2", label: "Match 8" },
+  { id: "l3", round: "Lower Round 2", label: "Match 9" },
+  { id: "l4", round: "Lower Round 2", label: "Match 10" },
+  { id: "u7", round: "Upper Final", label: "Match 11" },
+  { id: "l5", round: "Lower Round 3", label: "Match 12" },
+  { id: "l6", round: "Lower Final", label: "Match 13" },
+  { id: "f1", round: "Finals", label: "Final 1" },
+  { id: "f2", round: "Finals", label: "Final 2" },
+  { id: "f3", round: "Finals", label: "Final 3" }
 ];
 
 export const BRACKET_POINTS_BY_GAME = {

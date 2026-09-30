@@ -35,6 +35,16 @@ db.exec(`
     payload TEXT NOT NULL,
     updated_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS sessions (
+    id_hash TEXT PRIMARY KEY,
+    sub TEXT NOT NULL,
+    email TEXT NOT NULL,
+    name TEXT NOT NULL,
+    picture TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS sessions_sub ON sessions (sub);
 `);
 
 const STATE_ID = "shared-state";

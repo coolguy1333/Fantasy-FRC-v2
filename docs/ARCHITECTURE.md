@@ -41,18 +41,18 @@ without redesigning storage.
    ES module.
 2. `main.js` calls `GET /api/runtime-config` (no auth) to learn whether
    Google sign-in and TBA are configured.
-3. If Google sign-in is configured, `views/auth.js` renders the Google
-   Identity Services button. A successful sign-in hands the browser a Google
-   ID token, which `store.js` sends as `Authorization: Bearer <token>` on
-   every subsequent API call. The server re-verifies that token against
-   Google on **every** request (see `server/auth.js`) - there's no
-   server-side session store to manage or expire.
+3. In parallel, `main.js` asks `GET /api/auth/session` whether an earlier visit
+   left a session cookie. If so the person is signed in immediately - nothing
+   waits for Google's script - and the page shows a neutral state (never the
+   signed-out sign-in panel) until that answer arrives. If not, `views/auth.js`
+   loads Google Identity Services for the button and One Tap; a successful
+   sign-in is exchanged once (`POST /api/auth/verify`) for a 30-day,
+   HttpOnly session cookie (see [`docs/API.md`](./API.md#authentication)).
 4. Signed-in users pull `GET /api/state` once, then every 30s
-   (`POLL_INTERVAL_MS` in `constants.js`), unless a local change hasn't been
-   confirmed saved yet (`store.dirty` - see
-   [Sync and offline-safety](#sync-and-offline-safety)). The Google ID token is
-   kept in `sessionStorage` so a refresh restores the session, and renewed
-   shortly before it expires (`views/auth.js`).
+   (`POLL_INTERVAL_MS`) - only while the tab is visible, and with
+   `?since=<updatedAt>` so an unchanged document costs a few bytes - unless a
+   local change hasn't been confirmed saved yet (`store.dirty` - see
+   [Sync and offline-safety](#sync-and-offline-safety)).
 5. Any UI action that changes shared data (a prediction, a bracket pick, a
    feedback message, a team edit) calls `store.mutate(fn)`, which applies
    `fn` to the in-memory state immediately (so the UI updates instantly),
@@ -78,7 +78,7 @@ defined in `server/state/schema.js`:
 | `groups` | `{ [teamId]: { name, createdAt } }` | Team records |
 | `profileTeams` | `{ [profileId]: teamId }` | Which team each player belongs to |
 | `teamAdmins` | `{ [teamId]: [profileId, ...] }` | Who administers each team |
-| `teamInviteCodes` | `{ [teamId]: "ABCDE" }` | 5-character join codes |
+| `teamInviteCodes` | `{ [teamId]: "ABCDE" }` | 5-character join codes (secret: only sent to the team's admins and members) |
 | `globalAdminIds` / `globalAdminEmails` | `string[]` | Global admins granted through the app (on top of the `.env` bootstrap list) |
 | `pointAdjustments` | `{ [profileId]: number }` | Manual point corrections (admin tool, not yet wired into the leaderboard UI) |
 | `adminByEvent` | `{ [eventKey]: {...} }` | Reserved for per-event match lock/unlock overrides |
@@ -115,9 +115,10 @@ The rules, roughly in the order they're checked (`checkAuthorization`):
 4. **Existing team records** - once a team exists, only its listed admins
    (`teamAdmins[teamId]`) may change its `groups`/`teamAdmins`/
    `teamInviteCodes` entries.
-5. **`profileTeams`** (team membership) - anyone may set their *own* entry
-   (this is how "join by code" works client-side - see
-   [Known limitations](#known-limitations)). Nobody may set anyone else's,
+5. **`profileTeams`** (team membership) - a person may leave their team, or land on
+   a team they run (the one they just created). They may **not** join someone
+   else's team by writing the document: that goes through `POST /api/teams/join`,
+   where the server checks the code. Nobody may set anyone else's membership,
    except that a team admin may *remove* a member of a team they administer.
 6. **`feedback`** is append-only: a write may add exactly one new entry, and
    only if that entry's `profileId` matches the requester; existing entries
@@ -143,9 +144,11 @@ On top of the diff-based rules, `PUT /api/state` also:
   with `403 prediction_locked`. If TBA can't be reached the write is refused
   (`503`) rather than guessed. Global admins are exempt.
 - **Hides admin-only data** (`server/state/redact.js`). `feedback`,
-  `globalAdminIds` and `globalAdminEmails` are returned empty to non-admins,
-  and on write the server restores the real values before diffing, so a
-  non-admin's copy is never trusted.
+  `globalAdminIds` and `globalAdminEmails` are returned empty to non-admins, and
+  `teamInviteCodes` only holds the codes of teams the caller runs or belongs to.
+  On write the server restores the real values before diffing, so a caller's
+  copy of something they couldn't see is never trusted. Duplicate codes are
+  refused, since creators can't see the codes they might collide with.
 - **Caps text sizes** (`validateState` in `schema.js`).
 
 ## Sync and offline-safety
@@ -167,10 +170,14 @@ understanding if you're touching it:
 - **Rejections**: a 4xx that will never succeed (`403` locked/forbidden, `400`,
   `413`) drops the queued change, reloads the real state and shows an
   explanation (`syncError = "rejected"`) instead of retrying forever.
+- **Startup**: `store.restoreSession()` signs a returning player in from their
+  cookie. If the session is valid but loading the document fails, they stay
+  signed in with a "couldn't load - retrying" banner instead of looking signed out.
 - **Retry with backoff**: any other failure schedules a retry
   (`_scheduleRetry`), doubling the delay each time up to 60s, and sets
-  `store.syncError` to `"session_expired"` (HTTP 401, which also triggers a
-  silent token renewal) or `"save_failed"` so the UI (`main.js`'s
+  `store.syncError` to `"session_expired"` (HTTP 401: the session ended, so the
+  person is offered a quick sign-in and their queued changes are pushed once
+  they are back) or `"save_failed"` so the UI (`main.js`'s
   `renderSyncStatus`) can show a banner instead of failing silently.
 - **Rendering while typing**: views re-render on a timer and on every sync;
   `makeGuardedRender` (`ui.js`) holds a render back while a text field in the
@@ -178,24 +185,15 @@ understanding if you're touching it:
 
 ## Known limitations
 
-- **Team join codes aren't validated server-side.** The client looks up a
-  team by its code (`teams.js`'s `findTeamByCode`), then writes the
-  resulting `teamId` directly to `profileTeams`. The server only checks
-  that you're setting your *own* membership, not that you presented a valid
-  code - so knowing (or guessing) a `teamId` is functionally equivalent to
-  knowing its join code. `teamId`s aren't secret (`team_<timestamp36><4 random chars>`),
-  so this is a low-severity gap appropriate for a friendly homelab app, but
-  it is not a real access-control boundary. Fixing it properly would mean
-  adding a dedicated `/api/teams/join` endpoint that checks the code
-  server-side, rather than routing joins through the generic state write.
-- **`gameIdForMatch` (bracket scoring)** assumes the standard FRC
-  double-elimination bracket's `match_number` ordering within TBA's `sf`/`f`
-  comp levels. This holds for the common case but isn't validated against
-  every possible event configuration.
 - **The leaderboard is per event.** Standings are computed from the matches of
   the event currently selected on the Matches tab; there is no season-long
   total yet.
-- **Guest predictions aren't carried over** when a guest signs in.
+- **Guest picks are carried over once.** On first sign-in the app offers to move
+  guest picks for matches that are still open at the event on screen; picks for
+  other events, or matches that have already locked, stay behind.
+- **Bracket mapping assumes TBA's 2023+ numbering** (`sf` sets 1-13, finals as
+  `f1m1`-`f1m3`); earlier seasons have no bracket view. `test/bracket-map.test.js`
+  pins the browser and server copies of that mapping together.
 - **Rate limits are per client IP** as seen through the proxy. If several
   proxies sit in front of the app, only the last hop is trusted
   (`trust proxy` = 1), so everyone behind an outer proxy shares one budget.
@@ -204,10 +202,33 @@ understanding if you're touching it:
   `views/admin.js` beyond the domains that are actively used
   (Teams/Players/Feedback/Permissions).
 
+## Frontend structure
+
+Plain ES modules, no build step (`public/js/`):
+
+- `main.js` boots: session check, runtime config, then each view.
+- `store.js` (synced state + save queue), `api.js`, `runtime.js` (server config and
+  the event on screen, so Score and Leaderboard update the moment one is chosen).
+- `scoring.js` - pure scoring, the bracket mapping and ranking (no DOM).
+- `ui.js` - DOM helper (`el` never interprets HTML), accessible dialogs
+  (`showModal`, `confirmDialog`), toasts, `makeGuardedRender`.
+- `views/` - `matches.js` (event picker, match list, tab state), `bracket.js`,
+  `cards.js` (the shared pick card), `score.js`, `leaderboard.js`, `profile.js`
+  (profile, teams, invite links), `admin.js`, `guest.js`, `auth.js`, `help.js`.
+
+Rules of thumb: build DOM with `el()`/`fill()` (never `innerHTML`); don't pass
+`null` to `replaceChildren` (it prints "null" - use `fill`); anything with a text
+field renders through `makeGuardedRender`.
+
 ## Testing
 
 `npm test` runs the `node:test` suites in `test/`. They start the real server
 in a child process with Google token verification and The Blue Alliance
-stubbed out (`test/helpers/stub-external.js`), so they need no network or
-credentials. If you change `server/state/authorize.js` or `locks.js`, add a
-case for it in `test/api.test.js` - including one that should be rejected.
+stubbed out (`test/helpers/stub-external.js`, which also serves demo events shaped
+like TBA's real data), so they need no network or credentials. If you change
+`server/state/authorize.js` or `locks.js`, add a case for it in `test/api.test.js` -
+including one that should be rejected.
+
+`npm run test:e2e` (optional, needs Playwright) drives the real UI in headless
+Chromium: guest and signed-in flows, sessions surviving a refresh, conflicts,
+teams and invite links, the admin panel, and the bracket.
