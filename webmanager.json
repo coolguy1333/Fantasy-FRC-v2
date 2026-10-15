@@ -10,7 +10,7 @@
     },
     {
       "name": "GLOBAL_ADMIN_EMAILS",
-      "description": "Your Google account email (comma-separated for several). These accounts get the Admin tab: teams, feedback and settings. You can add more admins later inside the app. Without this, nobody can open the Admin tab.",
+      "description": "Your Google account email (comma-separated for several). These accounts get the Admin tab: players, teams, picks, feedback, settings and backups. You can add more admins later inside the app. If left blank, the app log shows a one-time setup code you can enter under Profile & team to become admin.",
       "required": false
     },
     {

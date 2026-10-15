@@ -1,6 +1,6 @@
 {
   "name": "fantasyfrc",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Fantasy FRC - predict FRC match winners and scores. Express + better-sqlite3.",
   "main": "server/index.js",

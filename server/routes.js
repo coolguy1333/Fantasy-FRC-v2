@@ -103,7 +103,10 @@ router.put("/state", limiters.write, auth, requireSameOrigin, stateJson, async (
     if (baseUpdatedAt !== current.updatedAt) return res.status(409).json({ error: "stale_state", updatedAt: current.updatedAt });
 
     const admin = isGlobalAdmin(current.state, req.authUser);
-    const incoming = normalizeState(req.body?.payload);
+    // A domain the client didn't send keeps its stored value: a tab opened before an
+    // update added a domain must not wipe it (or be refused for "changing" it).
+    const payload = req.body?.payload;
+    const incoming = normalizeState(payload && typeof payload === "object" && !Array.isArray(payload) ? { ...current.state, ...payload } : payload);
     const normalized = admin ? incoming : restoreAdminOnlyDomains(current.state, incoming, req.authUser);
     const validation = validateState(normalized);
     if (!validation.ok) return res.status(400).json({ error: "invalid_payload", detail: validation.error });
