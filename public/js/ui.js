@@ -1,5 +1,6 @@
 import { LOCK_WINDOW_MS } from "./constants.js";
 import { isDoubleElimEvent, setNumberOf } from "./scoring.js";
+import { store } from "./store.js";
 
 export const $ = (id) => document.getElementById(id);
 
@@ -190,7 +191,17 @@ export function matchStartMs(match) {
   return t ? t * 1000 : null;
 }
 
+// A global admin can force a match "open" (it's running late) or "locked" (close it
+// early). The server applies the same rule (server/state/locks.js).
+export function lockOverride(match) {
+  const eventKey = String(match?.key || "").split("_")[0];
+  return store.state.adminByEvent?.[eventKey]?.locks?.[match.key];
+}
+
 export function isLocked(match, now = Date.now()) {
+  const override = lockOverride(match);
+  if (override === "locked") return true;
+  if (override === "open") return false;
   const start = matchStartMs(match);
   if (!start) return false;
   return now >= start - LOCK_WINDOW_MS;

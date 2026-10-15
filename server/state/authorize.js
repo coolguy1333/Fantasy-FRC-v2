@@ -1,17 +1,17 @@
 const config = require("../config");
+const { normalizeEmail } = require("../emails");
 
 // Profile IDs are the Google account's `sub` claim - one profile per signed-in
 // user, so "own profile" checks are just `key === user.sub`.
 
 function isGlobalAdmin(state, user) {
   if (!user) return false;
-  if (config.bootstrapAdminIds.includes(user.sub)) return true;
-  if (user.email && config.bootstrapAdminEmails.includes(String(user.email).toLowerCase())) return true;
   const ids = Array.isArray(state.globalAdminIds) ? state.globalAdminIds : [];
+  if (config.bootstrapAdminIds.includes(user.sub) || ids.includes(user.sub)) return true;
+  if (!user.email) return false;
+  const email = normalizeEmail(user.email);
   const emails = Array.isArray(state.globalAdminEmails) ? state.globalAdminEmails : [];
-  if (ids.includes(user.sub)) return true;
-  if (user.email && emails.includes(String(user.email).toLowerCase())) return true;
-  return false;
+  return config.bootstrapAdminEmails.includes(email) || emails.some((e) => normalizeEmail(e) === email);
 }
 
 function teamsAdministeredBy(state, user) {
@@ -62,7 +62,7 @@ function isNewTeamCreation(prevState, nextState, teamId, user) {
   return arraysEqual(nextState.teamAdmins?.[teamId], [user.sub]);
 }
 
-const GLOBAL_ONLY_DOMAINS = ["globalAdminIds", "globalAdminEmails", "pointAdjustments", "adminByEvent", "showAllEventsInCatalog"];
+const GLOBAL_ONLY_DOMAINS = ["globalAdminIds", "globalAdminEmails", "pointAdjustments", "adminByEvent", "showAllEventsInCatalog", "announcement", "siteSettings"];
 
 function checkAuthorization(prevState, nextState, user) {
   if (!user) return { ok: false, error: "authentication_required" };

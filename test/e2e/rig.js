@@ -60,6 +60,7 @@ async function open({ mobile = false } = {}) {
     await ctx.route("https://accounts.google.com/gsi/client", (r) => r.fulfill({ contentType: "text/javascript", body: GOOGLE_STUB }));
     await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
     const page = await ctx.newPage();
+    page.setDefaultTimeout(8000);
     page.errors = [];
     page.on("pageerror", (e) => page.errors.push(e.message));
     return page;

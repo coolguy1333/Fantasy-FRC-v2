@@ -16,12 +16,30 @@ as an app, open its **Variables** page, and fill in three things.
    `https://fantasy.example.com`, no trailing slash). Copy the **Client ID** into
    `GOOGLE_CLIENT_ID`. You do **not** need the client secret.
 2. **You as admin** (`GLOBAL_ADMIN_EMAILS`) - the email of the Google account you'll
-   sign in with. That account gets an **Admin** tab.
+   sign in with. That account gets an **Admin** tab. The server log lists the admins it
+   read (masked, e.g. `f***@gmail.com`) so you can check it matched.
 3. **Live data** (`TBA_API_KEY`) - a free key from
    [thebluealliance.com/account](https://www.thebluealliance.com/account).
 
-Open the site, sign in, and check **Admin > Setup checklist**: it shows what's
-missing and the exact address to authorise in Google's console. People stay signed
+Open the site, sign in, and check **Admin > Overview**: its setup checklist shows
+what's missing and the exact address to authorise in Google's console.
+
+**No Admin tab?** Open the menu at the top right: it shows your role and the email
+Google gave the app. If that email isn't the one in `GLOBAL_ADMIN_EMAILS`, either fix
+the variable or use the **setup code**: until the site has an admin, the server log
+prints `Admin setup code: XXXX-XXXX`. Sign in, open **Profile & team**, expand
+"Run this site? Become its admin" and enter it.
+
+### What admins can do
+
+- **Site admins** (Admin tab): edit any player (name, team, team admin, site admin,
+  points adjustment per event with a reason, sign them out everywhere, delete them);
+  create, rename and delete teams, move people between them, manage invite codes;
+  edit or clear anyone's picks for a match and lock a match early or keep it open
+  late; read and triage feedback; post a site-wide announcement; feature an event
+  that everyone starts on; manage site admins; download a backup and restore one.
+- **Team admins** (Admin tab, "My team"): rename the team, share or replace its
+  invite link, make or remove team admins, remove members. People stay signed
 in for 30 days; signing out revokes their session.
 
 To run it by hand: `docker build -t fantasyfrc . && docker run -p 8080:8080 -e PORT=8080 -e DATA_DIR=/data -v fantasyfrc-data:/data fantasyfrc`.
@@ -111,6 +129,8 @@ Just copy the database file:
 cp /opt/fantasyfrc/data/fantasyfrc.db ~/fantasyfrc-backup-$(date +%F).db
 ```
 
+You can also download a backup (and restore one) from **Admin > Settings > Data**.
+
 ### Logs / troubleshooting
 
 ```bash
@@ -172,7 +192,8 @@ public/
     scoring.js   - pure scoring, bracket mapping and ranking
     constants.js
     ui.js        - DOM helpers, dialogs, toasts
-    views/       - matches, bracket, cards, score, leaderboard, profile, admin, guest, auth, help
+    views/       - matches, bracket, cards, score, leaderboard, profile, guest, auth, help,
+                   admin (+ admin-players, admin-teams, admin-picks, admin-common)
 ```
 
 ## Environment variables

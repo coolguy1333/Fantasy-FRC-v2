@@ -17,7 +17,9 @@ const DOMAINS = [
   "adminByEvent",
   "profileSetupDone",
   "showAllEventsInCatalog",
-  "feedback"
+  "feedback",
+  "announcement",
+  "siteSettings"
 ];
 
 function emptyState() {
@@ -37,7 +39,9 @@ function emptyState() {
     adminByEvent: {},
     profileSetupDone: {},
     showAllEventsInCatalog: false,
-    feedback: []
+    feedback: [],
+    announcement: { text: "", updatedAt: 0 },
+    siteSettings: { featuredEvent: "" }
   };
 }
 
@@ -84,6 +88,17 @@ function validateState(state) {
   if (new Set(codes).size !== codes.length) return { ok: false, error: "duplicate_team_code" };
   for (const [id, group] of Object.entries(state.groups)) {
     if (group && typeof group === "object" && tooLong(group.name, MAX_NAME)) return { ok: false, error: `team_name_too_long:${id}` };
+  }
+  if (tooLong(state.announcement.text, 500)) return { ok: false, error: "announcement_too_long" };
+  if (tooLong(state.siteSettings.featuredEvent, 40)) return { ok: false, error: "featured_event_invalid" };
+  // pointAdjustments: { [profileId]: { [eventKey]: { points, reason } } }
+  for (const perEvent of Object.values(state.pointAdjustments)) {
+    if (!perEvent || typeof perEvent !== "object") continue;
+    for (const adj of Object.values(perEvent)) {
+      if (adj && typeof adj === "object" && (typeof adj.points !== "number" || !Number.isFinite(adj.points) || tooLong(adj.reason, 200))) {
+        return { ok: false, error: "point_adjustment_invalid" };
+      }
+    }
   }
   for (const item of state.feedback) {
     if (!item || typeof item !== "object" || tooLong(item.name, MAX_NAME) || tooLong(item.contact, MAX_CONTACT) || tooLong(item.message, MAX_MESSAGE)) {

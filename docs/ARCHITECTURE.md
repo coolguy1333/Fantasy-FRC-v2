@@ -80,8 +80,10 @@ defined in `server/state/schema.js`:
 | `teamAdmins` | `{ [teamId]: [profileId, ...] }` | Who administers each team |
 | `teamInviteCodes` | `{ [teamId]: "ABCDE" }` | 5-character join codes (secret: only sent to the team's admins and members) |
 | `globalAdminIds` / `globalAdminEmails` | `string[]` | Global admins granted through the app (on top of the `.env` bootstrap list) |
-| `pointAdjustments` | `{ [profileId]: number }` | Manual point corrections (admin tool, not yet wired into the leaderboard UI) |
-| `adminByEvent` | `{ [eventKey]: {...} }` | Reserved for per-event match lock/unlock overrides |
+| `pointAdjustments` | `{ [profileId]: { [eventKey]: { points, reason } } }` | Admin point corrections per event (a legacy bare number applies to every event) |
+| `adminByEvent` | `{ [eventKey]: { locks: { [matchKey]: "open"\|"locked" } } }` | Admin lock overrides: keep a late match open or lock one early. Played matches are always locked |
+| `announcement` | `{ text, updatedAt }` | Site-wide message (also served to guests via `/api/runtime-config`) |
+| `siteSettings` | `{ featuredEvent }` | Event new visitors start on |
 | `profileSetupDone` | `{ [profileId]: boolean }` | Whether the onboarding modal has been completed |
 | `showAllEventsInCatalog` | `boolean` | Admin toggle: show every TBA event, not just the ~10-day window |
 | `feedback` | `Array<{ profileId, name, contact, message, at }>` | Append-only feedback inbox (admin-only; written via `POST /api/feedback`) |
@@ -125,8 +127,15 @@ The rules, roughly in the order they're checked (`checkAuthorization`):
    must be byte-for-byte unchanged. In practice non-admins never touch it
    through `PUT /api/state` - see "Admin-only data" below.
 7. **Everything else** (`globalAdminIds`, `globalAdminEmails`,
-   `pointAdjustments`, `adminByEvent`, `showAllEventsInCatalog`) requires
-   global admin.
+   `pointAdjustments`, `adminByEvent`, `showAllEventsInCatalog`, `announcement`,
+   `siteSettings`) requires global admin.
+
+Global admin is matched by Google `sub` or by email. Emails are normalized on both
+sides (`server/emails.js`: case, Gmail dots and `+tags`, `googlemail.com`, stray
+quotes/brackets, any of `, ; space` as separators), so a slightly different spelling
+in `GLOBAL_ADMIN_EMAILS` still matches. If the data has no admins at all, the server
+prints a one-time setup code (`server/setup.js`) that a signed-in user can redeem
+through `POST /api/admin/claim`.
 
 These rules live in `server/state/authorize.js`; `test/api.test.js` exercises
 them end to end, including escalation attempts that must be rejected.
@@ -141,7 +150,8 @@ On top of the diff-based rules, `PUT /api/state` also:
 - **Enforces prediction locks** (`server/state/locks.js`). Every changed
   prediction or bracket pick is checked against live TBA data; picks for a
   match that has been played or is within 10 minutes of starting are refused
-  with `403 prediction_locked`. If TBA can't be reached the write is refused
+  with `403 prediction_locked`, unless an admin override in `adminByEvent` says
+  otherwise ("open" keeps an unplayed match open; "locked" closes it early). If TBA can't be reached the write is refused
   (`503`) rather than guessed. Global admins are exempt.
 - **Hides admin-only data** (`server/state/redact.js`). `feedback`,
   `globalAdminIds` and `globalAdminEmails` are returned empty to non-admins, and
@@ -197,10 +207,6 @@ understanding if you're touching it:
 - **Rate limits are per client IP** as seen through the proxy. If several
   proxies sit in front of the app, only the last hop is trusted
   (`trust proxy` = 1), so everyone behind an outer proxy shares one budget.
-- **`pointAdjustments` and `adminByEvent`** are modeled in the shared state
-  and the admin authorization rules, but don't yet have UI wired up in
-  `views/admin.js` beyond the domains that are actively used
-  (Teams/Players/Feedback/Permissions).
 
 ## Frontend structure
 
@@ -214,7 +220,10 @@ Plain ES modules, no build step (`public/js/`):
   (`showModal`, `confirmDialog`), toasts, `makeGuardedRender`.
 - `views/` - `matches.js` (event picker, match list, tab state), `bracket.js`,
   `cards.js` (the shared pick card), `score.js`, `leaderboard.js`, `profile.js`
-  (profile, teams, invite links), `admin.js`, `guest.js`, `auth.js`, `help.js`.
+  (profile, teams, invite links, setup-code claim), `guest.js`, `auth.js`, `help.js`.
+- Admin console: `admin.js` (shell, Overview, Feedback, Settings), `admin-players.js`,
+  `admin-teams.js` (`teamManager`, shared by site admins and team admins),
+  `admin-picks.js` (pick editing, lock overrides), `admin-common.js` (helpers).
 
 Rules of thumb: build DOM with `el()`/`fill()` (never `innerHTML`); don't pass
 `null` to `replaceChildren` (it prints "null" - use `fill`); anything with a text

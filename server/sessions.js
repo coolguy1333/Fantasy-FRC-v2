@@ -51,6 +51,21 @@ function lookupSession(id) {
   return { user: { sub: row.sub, email: row.email, name: row.name, picture: row.picture }, renewed };
 }
 
+const accountsStmt = db.prepare(
+  "SELECT sub, email, name, MAX(expires_at) AS last_expiry FROM sessions GROUP BY sub"
+);
+const deleteForSubStmt = db.prepare("DELETE FROM sessions WHERE sub = ?");
+
+// Everyone with a live session: who they are by email, and roughly when they were
+// last active (sessions are renewed at most once a day, so this is to within a day).
+function listAccounts() {
+  return accountsStmt.all().map((r) => ({ sub: r.sub, email: r.email, name: r.name, lastActiveAt: r.last_expiry - config.sessionTtlMs }));
+}
+
+function deleteSessionsFor(sub) {
+  return deleteForSubStmt.run(sub).changes;
+}
+
 function deleteSession(id) {
   if (id) deleteStmt.run(hash(id));
 }
@@ -93,6 +108,8 @@ module.exports = {
   lookupSession,
   deleteSession,
   purgeExpiredSessions,
+  listAccounts,
+  deleteSessionsFor,
   readSessionId,
   setSessionCookie,
   clearSessionCookie

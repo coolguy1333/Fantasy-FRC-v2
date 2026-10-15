@@ -12,7 +12,7 @@ const check = (name, ok, extra = "") => { results.push(ok); console.log(`${ok ? 
   await page.goto(rig.s.base);
   await page.waitForSelector("#howToPlay");
   check("rules open on a first visit with no event", await page.evaluate(() => document.getElementById("howToPlay").open));
-  check("empty state invites choosing an event", (await page.locator("#matchesEmpty").innerText()).includes("Choose an event"));
+  check("empty state invites choosing an event", await page.waitForFunction(() => document.getElementById("matchesEmpty")?.innerText.includes("Choose an event")).then(() => true, () => false));
   await page.selectOption("#eventRegionSelect", "2099demo");
   await page.waitForSelector(".match-row");
   check("rules tuck away once an event is chosen", !(await page.evaluate(() => document.getElementById("howToPlay").open)));
@@ -78,17 +78,25 @@ const check = (name, ok, extra = "") => { results.push(ok); console.log(`${ok ? 
   await rig.signIn(page, "boss", "Coach Rivera");
   await page.click('[data-tab="adminTab"]');
   await page.waitForSelector(".check");
-  const checklist = await page.locator(".admin-section").first().innerText();
+  const checklist = await page.locator("#adminTab").innerText();
   check("setup checklist lists Google, origin, TBA, HTTPS", ["Google sign-in", "Authorized JavaScript origin", "Live event data", "HTTPS"].every((t) => checklist.includes(t)) && checklist.includes(rig.s.base));
   const teamsBefore = Object.keys((await serverState()).groups).length;
-  await page.locator(".admin-row", { hasText: "Team 1114" }).locator("button:has-text('Delete')").click();
-  await page.click(".modal-card >> button:has-text('Cancel')");
+  await page.click(".admin-nav button:has-text('Teams')");
+  const openTeam = async () => {
+    await page.locator(".admin-row", { hasText: "Team 1114" }).locator("button:has-text('Manage')").click();
+    await page.click(".modal-card button:has-text('Delete team')");
+  };
+  await openTeam();
+  await page.click(".modal-card >> nth=1 >> button:has-text('Cancel')");
   await wait(300);
   check("cancel keeps the team", Object.keys((await serverState()).groups).length === teamsBefore);
-  await page.locator(".admin-row", { hasText: "Team 1114" }).locator("button:has-text('Delete')").click();
-  await page.click(".modal-card >> button:has-text('Delete team')");
+  await page.click(".modal-card >> nth=0 >> button:has-text('Done')");
+  await openTeam();
+  await page.click(".modal-card >> nth=1 >> button:has-text('Delete team')");
   await wait(600);
   check("confirm deletes it", Object.keys((await serverState()).groups).length === teamsBefore - 1);
+  await page.click(".admin-nav button:has-text('Feedback')");
+  await page.waitForSelector(".feedback-item");
   check("feedback shows contact details", (await page.locator(".feedback-item").first().innerText()).length > 0 && (await page.locator(".feedback-item a[href^='mailto:']").count()) === 1);
 
   // ---- playoffs: real TBA shape grades every decided game; undecided games can't be picked

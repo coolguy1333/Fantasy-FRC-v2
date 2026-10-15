@@ -6,7 +6,8 @@ const { checkAuthorization, isGlobalAdmin } = require("./state/authorize");
 const { redactForNonAdmin, restoreAdminOnlyDomains } = require("./state/redact");
 const { checkPredictionLocks } = require("./state/locks");
 const { verifyGoogleIdToken, requireAuth } = require("./auth");
-const { createSession, lookupSession, deleteSession, readSessionId, setSessionCookie, clearSessionCookie } = require("./sessions");
+const { createSession, lookupSession, deleteSession, readSessionId, setSessionCookie, clearSessionCookie, listAccounts, deleteSessionsFor } = require("./sessions");
+const { claimAvailable, checkSetupCode } = require("./setup");
 const { limiters, requireSameOrigin } = require("./security");
 const { fetchTba, tbaProxyHandler, EVENT_KEY_RE, YEAR_RE } = require("./tba");
 
@@ -57,11 +58,18 @@ router.post("/auth/logout", limiters.auth, requireSameOrigin, (req, res) => {
 });
 
 router.get("/runtime-config", (_req, res) => {
+  const { state } = readState();
   res.json({
     appVersion: config.appVersion,
     googleClientId: config.googleClientId,
     authConfigured: Boolean(config.googleClientId),
-    tbaConfigured: Boolean(config.tbaApiKey)
+    tbaConfigured: Boolean(config.tbaApiKey),
+    // Shown to everyone, guests included, so it lives here rather than only in the synced document.
+    announcement: state.announcement?.text || "",
+    // The event everyone starts on until they choose their own.
+    featuredEvent: state.siteSettings?.featuredEvent || "",
+    // True until someone is made an admin from inside the app: the setup code still works.
+    adminClaimAvailable: claimAvailable(state)
   });
 });
 
@@ -166,6 +174,34 @@ router.post("/teams/join", limiters.code, auth, requireSameOrigin, smallJson, (r
   if (!team) return res.status(404).json({ error: "invalid_code" });
   current.state.profileTeams[req.authUser.sub] = team.teamId;
   res.json({ ok: true, ...team, updatedAt: writeState(current.state, current.updatedAt) });
+});
+
+// ---------------------------------------------------------------- admin
+
+function requireGlobalAdmin(req, res, next) {
+  if (isGlobalAdmin(readState().state, req.authUser)) return next();
+  res.status(403).json({ error: "global_admin_required" });
+}
+
+// Become a global admin with the setup code from the server log (see server/setup.js).
+router.post("/admin/claim", limiters.code, auth, requireSameOrigin, smallJson, (req, res) => {
+  const current = readState();
+  if (!claimAvailable(current.state)) return res.status(409).json({ error: "already_claimed" });
+  if (!checkSetupCode(req.body?.code)) return res.status(403).json({ error: "invalid_code" });
+  if (!current.state.globalAdminIds.includes(req.authUser.sub)) current.state.globalAdminIds.push(req.authUser.sub);
+  res.json({ ok: true, updatedAt: writeState(current.state, current.updatedAt) });
+});
+
+// Who has signed in: emails aren't part of the shared document, so admins get them here.
+router.get("/admin/accounts", limiters.read, auth, requireGlobalAdmin, (_req, res) => {
+  res.json({ accounts: listAccounts() });
+});
+
+// Sign someone out on every device (e.g. after removing them).
+router.post("/admin/revoke-sessions", limiters.write, auth, requireSameOrigin, requireGlobalAdmin, smallJson, (req, res) => {
+  const sub = String(req.body?.sub || "");
+  if (!sub) return res.status(400).json({ error: "missing_sub" });
+  res.json({ ok: true, revoked: deleteSessionsFor(sub) });
 });
 
 function validateParam(re, param, errorName) {

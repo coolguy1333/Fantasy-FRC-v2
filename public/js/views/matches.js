@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import { store } from "../store.js";
 import { runtime, setEvent } from "../runtime.js";
-import { $, el, formatCountdown, formatMatchTime, isLocked, makeGuardedRender, matchLabel, matchStartMs, teamNumbers, fill } from "../ui.js";
+import { $, el, formatCountdown, formatMatchTime, isLocked, lockOverride, makeGuardedRender, matchLabel, matchStartMs, teamNumbers, fill } from "../ui.js";
 import { hasPlayoffs, isPlayed, matchWinner, playerRows, rankRows, scorePredictions, totalsFor } from "../scoring.js";
 import { LOCK_WINDOW_MS } from "../constants.js";
 import { allianceButton, chip, resultLine, scoreGuessField } from "./cards.js";
@@ -120,8 +120,10 @@ async function loadEvents() {
   rebuildEventSelect();
   if (eventsStatus === "ready" && !selectedEventKey) {
     const saved = prefs.get(EVENT_STORAGE_KEY);
+    const featured = store.state.siteSettings?.featuredEvent || runtime.config.featuredEvent || "";
     const only = visibleEvents();
     if (saved && events.some((e) => e.key === saved)) selectEvent(saved, { remember: false });
+    else if (featured && events.some((e) => e.key === featured)) selectEvent(featured, { remember: false });
     else if (only.length === 1) selectEvent(only[0].key);
   }
   render();
@@ -203,8 +205,11 @@ function matchCard(match, ctx) {
   const winner = matchWinner(match);
   const breakdown = ctx.scored.byMatch[match.key];
 
+  const override = lockOverride(match);
   let status;
   if (played) status = chip("Final", "muted");
+  else if (locked && override === "locked") status = chip("Locked by an admin", "locked");
+  else if (!locked && override === "open") status = chip("Kept open by an admin", "open");
   else if (locked && start) status = el("span", { class: "chip chip-locked", "data-start-at": String(start) }, startChipText(start, now));
   else if (locked) status = chip("Locked", "locked");
   else if (start && !practice) status = el("span", { class: "chip chip-open", "data-lock-at": String(start - LOCK_WINDOW_MS) }, lockChipText(start - LOCK_WINDOW_MS, now));

@@ -36,6 +36,10 @@ export const api = {
   // Team codes are checked by the server: preview shows which team a code is for, join does it.
   previewTeam: (code) => request("/api/teams/preview", { method: "POST", body: JSON.stringify({ code }) }),
   joinTeam: (code) => request("/api/teams/join", { method: "POST", body: JSON.stringify({ code }) }),
+  // Global admin tools.
+  claimAdmin: (code) => request("/api/admin/claim", { method: "POST", body: JSON.stringify({ code }) }),
+  adminAccounts: () => request("/api/admin/accounts"),
+  revokeSessions: (sub) => request("/api/admin/revoke-sessions", { method: "POST", body: JSON.stringify({ sub }) }),
   sendFeedback: (entry) => request("/api/feedback", { method: "POST", body: JSON.stringify(entry) }),
 
   tbaEventsForYear: (year) => request(`/api/tba/events/${year}/simple`),
