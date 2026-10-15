@@ -1,5 +1,6 @@
 import { api } from "../api.js";
 import { store } from "../store.js";
+import { runtime } from "../runtime.js";
 import { el, showModal, toast, copyText, confirmDialog, fill } from "../ui.js";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I to misread
@@ -16,7 +17,7 @@ export function clearInvite() {
   if (new URLSearchParams(location.search).has("team")) history.replaceState(null, "", location.pathname + location.hash);
 }
 
-function genCode(existingCodes) {
+export function genCode(existingCodes) {
   const taken = new Set(Object.values(existingCodes || {}).map((c) => String(c).toUpperCase()));
   for (let attempt = 0; attempt < 50; attempt += 1) {
     let code = "";
@@ -193,6 +194,44 @@ function teamSection({ draft, redraw }) {
   ]);
 }
 
+// For whoever runs the site: the server prints a setup code in its log at startup
+// (until someone has been made an admin in the app). Entering it here makes you one.
+function ownerSection(close) {
+  const message = el("p", { class: "field-error hidden", role: "alert" });
+  const input = el("input", { class: "field-input code-input", maxlength: "9", autocomplete: "off", placeholder: "XXXX-XXXX", "aria-label": "Admin setup code" });
+  return el("details", { class: "team-card owner-card" }, [
+    el("summary", {}, "Run this site? Become its admin"),
+    el("p", { class: "muted small" }, "Find the admin setup code in the server's log (in WebManager: the app's page, under Logs). It changes every time the app restarts, and stops working once someone is made an admin here."),
+    el("div", { class: "inline-form" }, [
+      input,
+      el(
+        "button",
+        {
+          type: "button",
+          class: "load-btn",
+          onclick: async (e) => {
+            e.target.disabled = true;
+            try {
+              await api.claimAdmin(input.value);
+              runtime.config.adminClaimAvailable = false;
+              await store.refreshRole();
+              toast("You're now a site admin - see the Admin tab");
+              close();
+            } catch (err) {
+              message.textContent = err.status === 403 ? "That code isn't right. Copy it from the most recent server log." : err.status === 409 ? "This site already has an admin. Ask them to add you." : err.status === 429 ? "Too many tries - wait a minute." : "Couldn't do that right now. Try again.";
+              message.classList.remove("hidden");
+            } finally {
+              e.target.disabled = false;
+            }
+          }
+        },
+        "Become admin"
+      )
+    ]),
+    message
+  ]);
+}
+
 export function openProfile({ firstRun = false, prefillCode = "" } = {}) {
   if (!store.user) return;
   const existing = store.state.profiles?.[store.profileId] || {};
@@ -213,6 +252,7 @@ export function openProfile({ firstRun = false, prefillCode = "" } = {}) {
           field("Display name", "Shown on the leaderboard.", nameInput),
           field("FRC team number (optional)", null, numberInput),
           teamSection({ draft, redraw: draw }),
+          runtime.config.adminClaimAvailable && !store.isGlobalAdmin && !firstRun ? ownerSection(close) : null,
           error,
           el("div", { class: "modal-actions" }, [
             el(

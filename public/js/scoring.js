@@ -176,12 +176,16 @@ export function totalsFor(state, profileId, matches, eventKey) {
     bracketEntriesForEvent(state.bracketPicksByProfile?.[profileId], eventKey),
     bracketEntriesForEvent(state.bracketScoreByProfile?.[profileId], eventKey)
   );
-  const adjustment = Number(state.pointAdjustments?.[profileId] || 0);
+  // Adjustments are per event: { [eventKey]: { points, reason } } (a bare number = every event).
+  const adj = state.pointAdjustments?.[profileId];
+  const adjustment = typeof adj === "number" ? adj : Number(adj?.[eventKey]?.points || 0);
+  const adjustmentReason = typeof adj === "object" && adj ? adj[eventKey]?.reason || "" : "";
   return {
     points: round1(match.points + bracket.points + adjustment),
     matchPoints: match.points,
     bracketPoints: bracket.points,
     adjustment,
+    adjustmentReason,
     correct: match.correct + bracket.correctPicks,
     graded: match.graded + bracket.gradedGames,
     match,

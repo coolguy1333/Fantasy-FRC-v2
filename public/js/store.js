@@ -14,7 +14,7 @@ function isRejection(err) {
   return status >= 400 && status < 500 && ![401, 408, 409, 429].includes(status);
 }
 
-function emptyState() {
+export function emptyState() {
   return {
     profiles: {},
     predictionsByProfile: {},
@@ -31,7 +31,9 @@ function emptyState() {
     adminByEvent: {},
     profileSetupDone: {},
     showAllEventsInCatalog: false,
-    feedback: []
+    feedback: [],
+    announcement: { text: "", updatedAt: 0 },
+    siteSettings: { featuredEvent: "" }
   };
 }
 
@@ -181,6 +183,14 @@ class Store {
     this.user = null;
     this._resetSync();
     this.state = loadGuestState();
+    this.emit();
+  }
+
+  // Re-ask the server what this account is allowed to do (after becoming an admin).
+  async refreshRole() {
+    const result = await api.session();
+    this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
+    await this.loadRemote({ force: true });
     this.emit();
   }
 

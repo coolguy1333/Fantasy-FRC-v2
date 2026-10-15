@@ -1,5 +1,6 @@
 const path = require("path");
 require("dotenv").config();
+const { parseEmailList, parseList } = require("./emails");
 
 function bool(value, fallback = false) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -9,10 +10,6 @@ function bool(value, fallback = false) {
 function positiveNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
-function csv(value) {
-  return String(value || "").split(",").map((v) => v.trim()).filter(Boolean);
 }
 
 // DATA_DIR is what a WebManager-style host sets (always /data, always
@@ -43,7 +40,7 @@ module.exports = {
   googleClientId: String(process.env.GOOGLE_CLIENT_ID || "").trim(),
   requireHttps: bool(process.env.REQUIRE_HTTPS, false),
   localApiOnly: bool(process.env.LOCAL_API_ONLY, false),
-  bootstrapAdminEmails: csv(process.env.GLOBAL_ADMIN_EMAILS).map((e) => e.toLowerCase()),
-  bootstrapAdminIds: csv(process.env.GLOBAL_ADMIN_IDS),
+  bootstrapAdminEmails: parseEmailList(process.env.GLOBAL_ADMIN_EMAILS),
+  bootstrapAdminIds: parseList(process.env.GLOBAL_ADMIN_IDS),
   appVersion: require("../package.json").version
 };

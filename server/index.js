@@ -3,8 +3,10 @@ const express = require("express");
 const compression = require("compression");
 const config = require("./config");
 const apiRoutes = require("./routes");
-const { db } = require("./db");
+const { db, readState } = require("./db");
 const { purgeExpiredSessions } = require("./sessions");
+const { SETUP_CODE, claimAvailable } = require("./setup");
+const { maskEmail } = require("./emails");
 const { securityHeaders, enforceTransport, enforceLocalApiOnly } = require("./security");
 
 const app = express();
@@ -54,8 +56,13 @@ const server = app.listen(config.port, config.host, () => {
   console.log(`Fantasy FRC listening on http://${config.host}:${config.port} (v${config.appVersion})`);
   if (!config.googleClientId) console.warn("GOOGLE_CLIENT_ID not set - sign-in disabled.");
   if (!config.tbaApiKey) console.warn("TBA_API_KEY not set - live event data disabled.");
-  if (config.googleClientId && !config.bootstrapAdminEmails.length && !config.bootstrapAdminIds.length) {
-    console.warn("GLOBAL_ADMIN_EMAILS not set - nobody can open the Admin tab until you set it to your Google email.");
+  if (config.bootstrapAdminEmails.length) {
+    console.log(`Global admins from GLOBAL_ADMIN_EMAILS: ${config.bootstrapAdminEmails.map(maskEmail).join(", ")}`);
+  } else if (config.googleClientId) {
+    console.warn("GLOBAL_ADMIN_EMAILS not set - use the setup code below, or set it to your Google email.");
+  }
+  if (config.googleClientId && claimAvailable(readState().state)) {
+    console.log(`Admin setup code: ${SETUP_CODE} - sign in, open the menu at the top right, choose "Profile & team" and enter it to become a site admin.`);
   }
   if (config.googleClientId) {
     const origin = config.publicUrl || "your site's address";

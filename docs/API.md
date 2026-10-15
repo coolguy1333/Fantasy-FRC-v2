@@ -47,7 +47,11 @@ Revokes the current session and clears the cookie. **200** `{ "ok": true }`.
 Tells the client what's configured server-side, before any auth happens.
 
 - **Auth:** No
-- **200:** `{ "appVersion": "2.0.0", "googleClientId": "...", "authConfigured": true, "tbaConfigured": true }`
+- **200:** `{ "appVersion": "2.0.0", "googleClientId": "...", "authConfigured": true, "tbaConfigured": true, "announcement": "", "featuredEvent": "", "adminClaimAvailable": false }`
+  - `announcement` - site-wide message set by an admin (shown to guests too)
+  - `featuredEvent` - event key new visitors start on (empty = they choose)
+  - `adminClaimAvailable` - true while the site has no admin in its data, so the
+    setup code from the server log still works
 
 ## `GET /api/health`
 
@@ -110,6 +114,22 @@ document).
   `{ "ok", "teamId", "name", "updatedAt" }`, **404** `invalid_code`.
 
 **Auth:** Yes. **Rate limit:** `code` limiter (20 a minute) so codes can't be guessed.
+
+## Admin
+
+- `POST /api/admin/claim` - body `{ "code": "ABCD-EFGH" }` (case and dashes don't
+  matter). Makes the caller a site admin using the setup code printed in the server
+  log. Only works while the data has no site admins. **200** `{ "ok", "updatedAt" }`,
+  **403** `invalid_code`, **409** `already_claimed`. Rate limit: `code` limiter.
+- `GET /api/admin/accounts` - everyone with a session: **200**
+  `{ "accounts": [{ "sub", "email", "name", "lastActiveAt" }] }`. Emails aren't in the
+  shared document, so this is how the admin console shows them.
+- `POST /api/admin/revoke-sessions` - body `{ "sub": "..." }`; signs that person out
+  everywhere. **200** `{ "ok", "revoked": <count> }`, **400** `missing_sub`.
+
+**Auth:** Yes; the last two need a global admin (**403** `global_admin_required` otherwise).
+Everything else the console edits (players, teams, picks, locks, announcement,
+featured event, backup restore) is an ordinary `PUT /api/state` by a global admin.
 
 ## `POST /api/feedback`
 

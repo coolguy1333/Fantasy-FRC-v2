@@ -44,10 +44,14 @@ function changedKeys(prev, next) {
 }
 
 // Same rule as the client (public/js/ui.js isLocked): closed once the match has
-// been played or is within the lock window of its (predicted) start time.
-function isClosed(match, now) {
+// been played or is within the lock window of its (predicted) start time. A global
+// admin can override that per match ("open" for a match running late, "locked" to
+// close one early); a played match is always closed.
+function isClosed(match, now, override) {
   const score = (alliance) => match.alliances?.[alliance]?.score ?? -1;
   if (score("red") >= 0 && score("blue") >= 0) return true;
+  if (override === "locked") return true;
+  if (override === "open") return false;
   const startSec = match.predicted_time || match.time;
   return Boolean(startSec) && now >= startSec * 1000 - LOCK_WINDOW_MS;
 }
@@ -95,7 +99,8 @@ async function checkPredictionLocks(prevState, nextState, user, { getMatches, no
       if (change.matchKey) return fail(400, "unknown_match", change.matchKey);
       continue;
     }
-    if (isClosed(match, now)) return fail(403, "prediction_locked", change.label);
+    const override = prevState.adminByEvent?.[change.eventKey]?.locks?.[match.key];
+    if (isClosed(match, now, override)) return fail(403, "prediction_locked", change.label);
   }
   return { ok: true };
 }

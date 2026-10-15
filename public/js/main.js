@@ -109,6 +109,53 @@ function wireNav() {
   document.body.dataset.tab = "matchesTab";
 }
 
+// What the app thinks you are - shown in the menu so a misconfigured admin email is obvious.
+function roleOf() {
+  if (store.isGlobalAdmin) return "Site admin";
+  const admins = store.state.teamAdmins || {};
+  return Object.values(admins).some((list) => Array.isArray(list) && list.includes(store.profileId)) ? "Team admin" : "Player";
+}
+
+// A message from the site's admins, shown to everyone until they dismiss that message.
+const DISMISSED_KEY = "ffrc_dismissed_announcement";
+function renderAnnouncement() {
+  const box = $("announcement");
+  if (!box) return;
+  const text = String((store.user ? store.state.announcement?.text : runtime.config.announcement) || "").trim();
+  let dismissed = "";
+  try {
+    dismissed = localStorage.getItem(DISMISSED_KEY) || "";
+  } catch {
+    /* storage unavailable */
+  }
+  if (!text || dismissed === text) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  fill(
+    box,
+    el("p", { class: "announcement-text" }, text),
+    el(
+      "button",
+      {
+        type: "button",
+        class: "announcement-close",
+        "aria-label": "Dismiss this message",
+        onclick: () => {
+          try {
+            localStorage.setItem(DISMISSED_KEY, text);
+          } catch {
+            /* storage unavailable */
+          }
+          box.classList.add("hidden");
+        }
+      },
+      "Dismiss"
+    )
+  );
+}
+
 function wireProfileMenu() {
   const btn = $("headerProfileBtn");
   const panel = $("headerProfilePanel");
@@ -122,9 +169,10 @@ function wireProfileMenu() {
     if (!panel.classList.contains("hidden")) return close();
     const name = store.state.profiles?.[store.profileId]?.name || store.user?.name || "Signed in";
     fill(panel, 
-      el("div", { class: "profile-panel-name" }, name),
-      store.user?.email ? el("div", { class: "muted small profile-panel-email" }, store.user.email) : null,
+      el("div", { class: "profile-panel-name" }, [name, el("span", { class: `tag ${roleOf() === "Player" ? "tag-muted" : "tag-pick"} role-tag` }, roleOf())]),
+      el("div", { class: "muted small profile-panel-email" }, store.user?.email || "No verified email from Google - admin access by email won't work for this account"),
       el("button", { type: "button", class: "menu-item", onclick: () => (close(), openProfile()) }, "Profile & team"),
+      roleOf() !== "Player" ? el("button", { type: "button", class: "menu-item", onclick: () => (close(), document.querySelector('[data-tab="adminTab"]')?.click()) }, "Admin") : null,
       el("button", { type: "button", class: "menu-item", onclick: () => (close(), signOut()) }, "Sign out")
     );
     panel.classList.remove("hidden");
@@ -201,6 +249,7 @@ async function boot() {
     renderAuthPanel();
     renderSyncStatus();
     renderSaveStatus();
+    renderAnnouncement();
     if (store.user && !wasSignedIn) {
       wasSignedIn = true;
       maybeShowOnboarding();

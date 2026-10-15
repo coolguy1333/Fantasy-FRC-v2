@@ -1,23 +1,28 @@
-import { store } from "../store.js";
+import { store, emptyState } from "../store.js";
 import { runtime } from "../runtime.js";
-import { $, el, notice, makeGuardedRender, toast, copyText, confirmDialog, fill } from "../ui.js";
-import { inviteLinkFor } from "./profile.js";
+import { $, el, notice, makeGuardedRender, toast, confirmDialog, fill } from "../ui.js";
+import { accounts, allPlayerIds, button, card, change, copyButton, needAccounts, nameOf, row } from "./admin-common.js";
+import { myTeamsSection, teamsSection } from "./admin-teams.js";
+import { playersSection } from "./admin-players.js";
+import { picksSection } from "./admin-picks.js";
+
+const GLOBAL_SECTIONS = [
+  ["overview", "Overview"],
+  ["players", "Players"],
+  ["teams", "Teams"],
+  ["picks", "Picks"],
+  ["feedback", "Feedback"],
+  ["settings", "Settings"]
+];
+
+let section = null;
+let feedbackFilter = "open";
 
 const isGlobalAdmin = () => Boolean(store.isGlobalAdmin);
 
 function myAdminTeams() {
   const teamAdmins = store.state.teamAdmins || {};
-  return Object.keys(teamAdmins).filter((teamId) => (teamAdmins[teamId] || []).includes(store.profileId));
-}
-
-function card(title, ...children) {
-  return el("section", { class: "admin-section" }, [el("h4", {}, title), ...children]);
-}
-
-const row = (...children) => el("div", { class: "admin-row" }, children);
-
-function copyButton(text, label, done) {
-  return el("button", { type: "button", class: "secondary-btn", onclick: async () => toast((await copyText(text)) ? done : "Couldn't copy - select it and copy manually", "success") }, label);
+  return Object.keys(teamAdmins).filter((teamId) => (teamAdmins[teamId] || []).includes(store.profileId) && store.state.groups?.[teamId]);
 }
 
 function status(ok, title, detail) {
@@ -31,7 +36,6 @@ function status(ok, title, detail) {
 function setupChecklist() {
   const cfg = runtime.config;
   const secure = location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname);
-  const extra = (store.state.globalAdminEmails || []).length;
   return card(
     "Setup checklist",
     status(Boolean(cfg.authConfigured), "Google sign-in", cfg.authConfigured ? "GOOGLE_CLIENT_ID is set." : "GOOGLE_CLIENT_ID isn't set, so nobody can sign in. Set it in your app's settings."),
@@ -45,204 +49,205 @@ function setupChecklist() {
     ]),
     status(Boolean(cfg.tbaConfigured), "Live event data", cfg.tbaConfigured ? "TBA_API_KEY is set." : "TBA_API_KEY isn't set, so no events or matches can load. Get a free key at thebluealliance.com/account."),
     status(secure, "HTTPS", secure ? "This page is served securely." : "Google sign-in needs HTTPS (except on localhost). Serve the app over https://."),
-    status(true, "Admins", `You are a global admin${extra ? ` (plus ${extra} more added below)` : ""}.`),
     el("p", { class: "muted small" }, `App version ${cfg.appVersion || "unknown"}`)
   );
 }
 
-function teamsSection() {
-  const groups = store.state.groups || {};
-  const members = {};
-  for (const teamId of Object.values(store.state.profileTeams || {})) members[teamId] = (members[teamId] || 0) + 1;
-  const wrap = card(`Teams (${Object.keys(groups).length})`);
-  if (!Object.keys(groups).length) wrap.append(el("p", { class: "muted" }, "No teams yet. Players create teams from their profile."));
-  for (const [teamId, team] of Object.entries(groups)) {
-    const code = store.state.teamInviteCodes?.[teamId];
-    wrap.append(
-      row(
-        el("div", { class: "grow" }, [el("strong", {}, team.name), el("div", { class: "muted small" }, `${members[teamId] || 0} member${members[teamId] === 1 ? "" : "s"}${code ? ` · code ${code}` : ""}`)]),
-        code ? copyButton(inviteLinkFor(code), "Copy invite link", "Invite link copied") : null,
-        el(
-          "button",
-          {
-            type: "button",
-            class: "danger-btn",
-            onclick: async () => {
-              const ok = await confirmDialog(`Delete ${team.name}? Its ${members[teamId] || 0} member(s) will be taken off the team. Their picks and points are kept.`, { title: "Delete team", confirmLabel: "Delete team", danger: true });
-              if (!ok) return;
-              store.mutate((state) => {
-                delete state.groups[teamId];
-                delete state.teamInviteCodes[teamId];
-                delete state.teamAdmins[teamId];
-                for (const pid of Object.keys(state.profileTeams)) if (state.profileTeams[pid] === teamId) delete state.profileTeams[pid];
-              });
-              toast("Team deleted");
-            }
-          },
-          "Delete"
-        )
-      )
-    );
-  }
-  return wrap;
+function stat(label, value, sub) {
+  return el("div", { class: "score-card" }, [el("span", { class: "score-label" }, label), el("span", { class: "score-value" }, String(value)), sub ? el("span", { class: "score-sub" }, sub) : null]);
 }
 
-function playersSection() {
-  const profiles = store.state.profiles || {};
-  const groups = store.state.groups || {};
-  const ids = Object.keys(profiles);
-  const wrap = card(`Players (${ids.length})`);
-  if (!ids.length) wrap.append(el("p", { class: "muted" }, "Nobody has set up a profile yet."));
-  for (const id of ids) {
-    const teamId = store.state.profileTeams?.[id];
-    const picks = Object.keys(store.state.predictionsByProfile?.[id] || {}).length;
-    wrap.append(
-      row(
-        el("div", { class: "grow" }, [
-          el("strong", {}, profiles[id]?.name || "Player"),
-          el("div", { class: "muted small" }, [teamId && groups[teamId] ? groups[teamId].name : "No team", ` · ${picks} pick${picks === 1 ? "" : "s"}`, profiles[id]?.teamNumber ? ` · FRC ${profiles[id].teamNumber}` : ""])
-        ])
-      )
-    );
-  }
-  return wrap;
+function goTo(name) {
+  section = name;
+  renderNow();
+  $("adminPanel")?.scrollIntoView({ block: "start" });
 }
 
-function feedbackSection() {
-  const items = [...(store.state.feedback || [])].reverse();
-  const wrap = card(`Feedback (${items.length})`);
-  if (!items.length) wrap.append(el("p", { class: "muted" }, "No feedback yet."));
-  for (const item of items) {
-    const contact = String(item.contact || "");
-    wrap.append(
-      el("div", { class: "feedback-item" }, [
-        el("div", { class: "feedback-head" }, [
-          el("strong", {}, item.name || "Anonymous"),
-          contact ? (contact.includes("@") ? el("a", { href: `mailto:${contact}`, class: "link" }, contact) : el("span", { class: "muted" }, contact)) : el("span", { class: "muted small" }, "no contact given"),
-          el("span", { class: "muted small" }, new Date(item.at || 0).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))
-        ]),
-        el("p", { class: "feedback-message" }, item.message)
+function overviewSection(rerender) {
+  needAccounts(rerender);
+  const s = store.state;
+  const players = allPlayerIds();
+  const picks = players.reduce((n, sub) => n + Object.keys(s.predictionsByProfile?.[sub] || {}).length, 0);
+  const openFeedback = (s.feedback || []).filter((f) => !f.handled).length;
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const active = Object.values(accounts.bySub).filter((a) => a.lastActiveAt >= dayAgo).length;
+  return [
+    el("div", { class: "score-grid" }, [
+      stat("Players", players.length, accounts.loaded ? `${active} active today` : null),
+      stat("Teams", Object.keys(s.groups || {}).length),
+      stat("Picks made", picks),
+      stat("Open feedback", openFeedback)
+    ]),
+    card(
+      "Quick actions",
+      el("div", { class: "modal-actions" }, [
+        button("Edit players", () => goTo("players")),
+        button("Manage teams", () => goTo("teams")),
+        button("Fix picks or locks", () => goTo("picks")),
+        button(`Read feedback${openFeedback ? ` (${openFeedback})` : ""}`, () => goTo("feedback")),
+        button("Post an announcement", () => goTo("settings")),
+        button("Download a backup", downloadBackup)
       ])
-    );
+    ),
+    setupChecklist()
+  ];
+}
+
+const sameFeedback = (a, b) => a.at === b.at && a.profileId === b.profileId && a.message === b.message;
+
+function feedbackSection(rerender) {
+  const all = [...(store.state.feedback || [])].reverse();
+  const items = all.filter((f) => (feedbackFilter === "open" ? !f.handled : feedbackFilter === "done" ? f.handled : true));
+  const filters = el(
+    "div",
+    { class: "segmented" },
+    [
+      ["open", `Open (${all.filter((f) => !f.handled).length})`],
+      ["done", "Handled"],
+      ["all", "All"]
+    ].map(([value, label]) => el("button", { type: "button", class: `seg-btn${feedbackFilter === value ? " active" : ""}`, "aria-pressed": String(feedbackFilter === value), onclick: () => ((feedbackFilter = value), rerender()) }, label))
+  );
+  return [
+    card(
+      "Feedback",
+      filters,
+      items.length ? null : el("p", { class: "muted" }, feedbackFilter === "open" ? "Nothing waiting - all caught up." : "Nothing here."),
+      ...items.map((item) => {
+        const contact = String(item.contact || "");
+        return el("div", { class: `feedback-item${item.handled ? " handled" : ""}` }, [
+          el("div", { class: "feedback-head" }, [
+            el("strong", {}, item.name || (item.profileId ? nameOf(item.profileId) : "Anonymous")),
+            contact ? (contact.includes("@") ? el("a", { href: `mailto:${contact}`, class: "link" }, contact) : el("span", { class: "muted" }, contact)) : el("span", { class: "muted small" }, "no contact given"),
+            el("span", { class: "muted small" }, new Date(item.at || 0).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))
+          ]),
+          el("p", { class: "feedback-message" }, item.message),
+          el("div", { class: "modal-actions" }, [
+            button(item.handled ? "Reopen" : "Mark handled", () =>
+              change((state) => {
+                const target = state.feedback.find((f) => sameFeedback(f, item));
+                if (target) target.handled = !item.handled;
+              })
+            ),
+            button(
+              "Delete",
+              async () => {
+                if (!(await confirmDialog("Delete this feedback for good?", { title: "Delete feedback", confirmLabel: "Delete", danger: true }))) return;
+                change((state) => {
+                  state.feedback = state.feedback.filter((f) => !sameFeedback(f, item));
+                }, "Feedback deleted");
+              },
+              "danger-btn"
+            )
+          ])
+        ]);
+      })
+    )
+  ];
+}
+
+function downloadBackup() {
+  const payload = { app: "fantasy-frc", version: runtime.config.appVersion || "", exportedAt: new Date().toISOString(), state: store.state };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+  const a = el("a", { href: url, download: `fantasy-frc-backup-${new Date().toISOString().slice(0, 10)}.json` });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast("Backup downloaded");
+}
+
+async function restoreBackup(file) {
+  let data;
+  try {
+    const parsed = JSON.parse(await file.text());
+    data = parsed && typeof parsed === "object" && parsed.state ? parsed.state : parsed;
+  } catch {
+    return toast("That file isn't a Fantasy FRC backup (not valid JSON)", "error");
   }
-  return wrap;
+  const domains = Object.keys(emptyState());
+  if (!data || typeof data !== "object" || !["profiles", "predictionsByProfile"].every((k) => data[k] && typeof data[k] === "object")) {
+    return toast("That file isn't a Fantasy FRC backup", "error");
+  }
+  const players = Object.keys(data.profiles).length;
+  if (!(await confirmDialog(`Replace ALL current data with this backup (${players} players)? Everything changed since it was made is lost. Download a backup of the current data first if you might want it.`, { title: "Restore backup", confirmLabel: "Replace everything", danger: true }))) return;
+  const fresh = emptyState();
+  const result = await change((state) => {
+    for (const key of domains) state[key] = key in data ? data[key] : fresh[key];
+  });
+  toast(result.ok ? "Backup restored" : "The server rejected that backup - nothing was changed", result.ok ? "success" : "error");
 }
 
 function settingsSection() {
-  const wrap = card("Settings");
-  wrap.append(
+  const s = store.state;
+  const text = el("textarea", { class: "field-input footer-textarea", maxlength: "500", placeholder: "e.g. Picks for Saturday's matches open at 8am!", "aria-label": "Announcement" }, s.announcement?.text || "");
+  const announcement = card(
+    "Announcement",
+    el("p", { class: "muted small" }, "Shown at the top of the site for everyone, including guests, until they dismiss it. Changing the text shows it again."),
+    text,
+    el("div", { class: "modal-actions" }, [
+      button("Publish", () => change((state) => (state.announcement = { text: text.value.trim(), updatedAt: Date.now() }), text.value.trim() ? "Announcement published" : "Announcement cleared"), "load-btn"),
+      s.announcement?.text ? button("Clear", () => change((state) => (state.announcement = { text: "", updatedAt: Date.now() }), "Announcement cleared")) : null
+    ])
+  );
+
+  const featured = s.siteSettings?.featuredEvent || "";
+  const onScreen = runtime.event.key;
+  const featuredRow = el("div", { class: "check-row" }, [
+    el("span", { class: "grow" }, [
+      el("strong", {}, "Featured event"),
+      el("span", { class: "muted small block" }, featured ? `Everyone who hasn't chosen an event starts on ${featured === onScreen ? runtime.event.name : featured}.` : "None - people choose their own event."),
+      el("span", { class: "muted small block" }, onScreen ? `On screen now: ${runtime.event.name}.` : "Choose an event on the Matches tab to feature it.")
+    ]),
+    onScreen && onScreen !== featured ? button("Feature this event", () => change((state) => (state.siteSettings = { ...state.siteSettings, featuredEvent: onScreen }), `${runtime.event.name} is now featured`), "load-btn") : null,
+    featured ? button("Stop featuring", () => change((state) => (state.siteSettings = { ...state.siteSettings, featuredEvent: "" }), "No featured event")) : null
+  ]);
+  const events = card(
+    "Events",
+    featuredRow,
     el("label", { class: "check-row" }, [
-      el("input", {
-        type: "checkbox",
-        checked: Boolean(store.state.showAllEventsInCatalog),
-        onchange: (e) =>
-          store.mutate((state) => {
-            state.showAllEventsInCatalog = e.target.checked;
-          })
-      }),
+      el("input", { type: "checkbox", checked: Boolean(s.showAllEventsInCatalog), onchange: (e) => change((state) => (state.showAllEventsInCatalog = e.target.checked)) }),
       el("span", {}, [el("strong", {}, "Show every event to everyone"), el("span", { class: "muted small block" }, "By default the event list only shows events happening around now.")])
     ])
   );
 
-  const emailInput = el("input", { class: "field-input", type: "email", placeholder: "name@example.com", "aria-label": "Email to grant global admin" });
+  const emailInput = el("input", { class: "field-input", type: "email", placeholder: "name@gmail.com", "aria-label": "Email to make a site admin" });
   const grant = () => {
     const email = emailInput.value.trim().toLowerCase();
     if (!email.includes("@")) return toast("Enter a valid email address", "error");
-    if (store.state.globalAdminEmails.includes(email)) return toast("They're already an admin", "error");
-    store.mutate((state) => {
-      state.globalAdminEmails.push(email);
-    });
-    toast(`${email} is now an admin`);
+    if (s.globalAdminEmails.includes(email)) return toast("They're already an admin", "error");
+    change((state) => state.globalAdminEmails.push(email), `${email} is now a site admin`);
   };
-  wrap.append(
-    el("h5", {}, "Global admins"),
-    el("p", { class: "muted small" }, "Admins can manage every team and see feedback. Add someone by the email of their Google account."),
-    el("div", { class: "inline-form" }, [emailInput, el("button", { type: "button", class: "load-btn", onclick: grant }, "Make admin")])
+  const remove = (label, mutator) =>
+    button("Remove", async () => {
+      if (!(await confirmDialog(`Remove site admin access for ${label}?`, { title: "Remove admin", confirmLabel: "Remove", danger: true }))) return;
+      change(mutator);
+    });
+  const admins = card(
+    "Site admins",
+    el("p", { class: "muted small" }, "Site admins can use everything in this tab. Add someone by the email of their Google account, or tick \"Site admin\" on a player. Admins listed in the server's GLOBAL_ADMIN_EMAILS setting aren't shown here and can only be changed there."),
+    el("div", { class: "inline-form" }, [emailInput, button("Make admin", grant, "load-btn")]),
+    ...(s.globalAdminEmails || []).map((email) => row(el("span", { class: "grow" }, email), remove(email, (state) => (state.globalAdminEmails = state.globalAdminEmails.filter((e) => e !== email))))),
+    ...(s.globalAdminIds || []).map((sub) =>
+      row(el("span", { class: "grow" }, [nameOf(sub), sub === store.profileId ? el("span", { class: "tag tag-pick you" }, "You") : null]), remove(nameOf(sub), (state) => (state.globalAdminIds = state.globalAdminIds.filter((id) => id !== sub))))
+    )
   );
-  for (const email of store.state.globalAdminEmails || []) {
-    wrap.append(
-      row(
-        el("span", { class: "grow" }, email),
-        el(
-          "button",
-          {
-            type: "button",
-            class: "secondary-btn",
-            onclick: async () => {
-              if (!(await confirmDialog(`Remove admin access for ${email}?`, { title: "Remove admin", confirmLabel: "Remove", danger: true }))) return;
-              store.mutate((state) => {
-                state.globalAdminEmails = state.globalAdminEmails.filter((e) => e !== email);
-              });
-            }
-          },
-          "Remove"
-        )
-      )
-    );
-  }
-  return wrap;
+
+  const fileInput = el("input", { type: "file", accept: "application/json,.json", class: "hidden", onchange: (e) => e.target.files[0] && restoreBackup(e.target.files[0]) });
+  const data = card(
+    "Data",
+    el("p", { class: "muted small" }, "A backup is one file with every player, pick, team and setting. Restoring replaces everything with the file's contents."),
+    el("div", { class: "modal-actions" }, [button("Download backup", downloadBackup, "load-btn"), button("Restore from backup...", () => fileInput.click()), fileInput])
+  );
+
+  return [announcement, events, admins, data];
 }
 
-function myTeamSection(teamId) {
-  const team = store.state.groups[teamId];
-  const code = store.state.teamInviteCodes?.[teamId];
-  const wrap = card(team?.name || "My team");
-  const nameInput = el("input", { class: "field-input", maxlength: "40", value: team?.name || "", "aria-label": "Team name" });
-  wrap.append(
-    el("div", { class: "inline-form" }, [
-      nameInput,
-      el(
-        "button",
-        {
-          type: "button",
-          class: "secondary-btn",
-          onclick: () => {
-            const name = nameInput.value.trim();
-            if (!name) return toast("A team needs a name", "error");
-            store.mutate((state) => {
-              state.groups[teamId] = { ...state.groups[teamId], name };
-            });
-            toast("Team renamed");
-          }
-        },
-        "Rename"
-      )
-    ])
+function sectionNav(choices) {
+  return el(
+    "nav",
+    { class: "admin-nav", "aria-label": "Admin sections" },
+    choices.map(([value, label]) => el("button", { type: "button", class: `seg-btn${section === value ? " active" : ""}`, "aria-pressed": String(section === value), onclick: () => ((section = value), renderNow()) }, label))
   );
-  if (code) {
-    const link = inviteLinkFor(code);
-    wrap.append(
-      el("p", { class: "muted small" }, `Team code ${code}. Share the link so teammates can join in one tap.`),
-      el("div", { class: "invite-row" }, [el("input", { class: "field-input", readonly: true, value: link, "aria-label": "Invite link", onfocus: (e) => e.target.select() }), copyButton(link, "Copy link", "Invite link copied")])
-    );
-  }
-  wrap.append(el("h5", {}, "Members"));
-  const members = Object.entries(store.state.profileTeams || {}).filter(([, t]) => t === teamId);
-  for (const [profileId] of members) {
-    const name = store.state.profiles[profileId]?.name || "Player";
-    wrap.append(
-      row(
-        el("span", { class: "grow" }, [name, profileId === store.profileId ? el("span", { class: "tag tag-pick you" }, "You") : null]),
-        profileId === store.profileId
-          ? null
-          : el(
-              "button",
-              {
-                type: "button",
-                class: "secondary-btn",
-                onclick: async () => {
-                  if (!(await confirmDialog(`Remove ${name} from ${team.name}?`, { title: "Remove member", confirmLabel: "Remove", danger: true }))) return;
-                  store.mutate((state) => {
-                    delete state.profileTeams[profileId];
-                  });
-                }
-              },
-              "Remove"
-            )
-      )
-    );
-  }
-  return wrap;
 }
 
 function renderNow() {
@@ -251,16 +256,32 @@ function renderNow() {
   const admin = isGlobalAdmin();
   const teams = myAdminTeams();
   $("nav-admin")?.classList.toggle("hidden", !admin && !teams.length);
+  const roleBadge = $("adminRole");
+  if (roleBadge) {
+    roleBadge.textContent = admin ? "Site admin" : teams.length ? "Team admin" : "";
+    roleBadge.classList.toggle("hidden", !admin && !teams.length);
+  }
   if (!admin && !teams.length) {
     fill(panel);
-    notice("adminAccessNotice", "You don't have admin access.", "info");
+    notice("adminAccessNotice", "You don't have admin access. If you run this site, open the menu at the top right, choose \"Profile & team\" and use the admin setup code from the server log.", "info");
     return;
   }
   notice("adminAccessNotice", "");
-  fill(panel, 
-    ...(admin ? [setupChecklist(), teamsSection(), playersSection(), feedbackSection(), settingsSection()] : []),
-    ...teams.filter((id) => store.state.groups[id]).map((id) => myTeamSection(id))
-  );
+
+  const choices = [...(admin ? GLOBAL_SECTIONS : []), ...(teams.length ? [["myteam", teams.length === 1 ? "My team" : "My teams"]] : [])];
+  if (!choices.some(([value]) => value === section)) section = choices[0][0];
+
+  const rerender = () => render();
+  let content;
+  if (section === "overview") content = overviewSection(rerender);
+  else if (section === "players") content = playersSection(rerender);
+  else if (section === "teams") content = teamsSection();
+  else if (section === "picks") content = picksSection();
+  else if (section === "feedback") content = feedbackSection(rerender);
+  else if (section === "settings") content = settingsSection();
+  else content = myTeamsSection(teams);
+
+  fill(panel, choices.length > 1 ? sectionNav(choices) : null, ...content);
 }
 
 const render = makeGuardedRender(() => [$("adminPanel")], renderNow);

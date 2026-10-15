@@ -10,7 +10,7 @@ if (!available) {
   process.exit(0);
 }
 
-const scripts = ["guest-and-sync.js", "session.js", "teams-admin-bracket.js", "guest-picks.js"];
+const scripts = ["guest-and-sync.js", "session.js", "teams-admin-bracket.js", "guest-picks.js", "admin.js"];
 let failed = 0;
 for (const script of scripts) {
   console.log(`\n=== ${script}`);
