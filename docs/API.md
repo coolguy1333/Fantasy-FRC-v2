@@ -47,7 +47,7 @@ Revokes the current session and clears the cookie. **200** `{ "ok": true }`.
 Tells the client what's configured server-side, before any auth happens.
 
 - **Auth:** No
-- **200:** `{ "appVersion": "2.0.0", "googleClientId": "...", "authConfigured": true, "tbaConfigured": true, "announcement": "", "featuredEvent": "", "adminClaimAvailable": false }`
+- **200:** `{ "appVersion": "2.1.0", "googleClientId": "...", "authConfigured": true, "tbaConfigured": true, "announcement": "", "featuredEvent": "", "adminClaimAvailable": false }`
   - `announcement` - site-wide message set by an admin (shown to guests too)
   - `featuredEvent` - event key new visitors start on (empty = they choose)
   - `adminClaimAvailable` - true while the site has no admin in its data, so the

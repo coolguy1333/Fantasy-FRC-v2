@@ -76,6 +76,13 @@ test("the announcement is admin-only to set and public to read", async () => {
   assert.equal((await save(boss, (p) => { p.announcement = { text: "x".repeat(600), updatedAt: 3 }; })).status, 400);
 });
 
+test("a tab from before an update (missing new domains) neither wipes them nor gets refused", async () => {
+  const old = (p) => { delete p.announcement; delete p.siteSettings; };
+  assert.equal((await save(alice, (p) => { old(p); p.profiles.alice = { name: "Alice" }; })).status, 200);
+  assert.equal((await save(boss, (p) => { old(p); p.profiles.boss = { name: "Boss" }; })).status, 200);
+  assert.equal((await s.call("GET", "/api/runtime-config")).json.announcement, "Picks reset at noon");
+});
+
 test("point adjustments are per event and validated", async () => {
   assert.equal((await save(boss, (p) => { p.pointAdjustments.alice = { "2099test": { points: 2.5, reason: "Replayed match" } }; })).status, 200);
   assert.equal((await save(boss, (p) => { p.pointAdjustments.alice = { "2099test": { points: "lots" } }; })).status, 400);
