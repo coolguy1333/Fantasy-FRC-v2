@@ -2,17 +2,19 @@ import { api } from "../api.js";
 import { store } from "../store.js";
 import { runtime, setEvent } from "../runtime.js";
 import { $, el, formatCountdown, formatMatchTime, isLocked, lockOverride, makeGuardedRender, matchLabel, matchStartMs, teamNumbers, fill } from "../ui.js";
-import { hasPlayoffs, isPlayed, matchWinner, playerRows, rankRows, scorePredictions, totalsFor } from "../scoring.js";
+import { gameIdForMatch, hasPlayoffs, isPlayed, matchWinner, playerRows, rankRows, scorePredictions, totalsFor } from "../scoring.js";
 import { LOCK_WINDOW_MS } from "../constants.js";
 import { allianceButton, chip, resultLine, scoreGuessField } from "./cards.js";
 import { renderBracket } from "./bracket.js";
 import { buildHowToPlay } from "./help.js";
 
 const EVENT_STORAGE_KEY = "ffrc_selected_event";
-const SHOW_ALL_KEY = "ffrc_show_all_events";
+const SHOW_ALL_KEY = "ffrc_show_all_events"; // older builds: "1" meant "all events"
+const RANGE_KEY = "ffrc_event_range";
 const HELP_SEEN_KEY = "ffrc_help_seen";
 const SEARCH_THRESHOLD = 8; // only show the event search box when the list is long enough to need it
-const WINDOW_MS = 10 * 24 * 60 * 60 * 1000; // events within ~10 days count as "happening now"
+const DAY_MS = 24 * 60 * 60 * 1000;
+const RANGES = ["3", "10", "all"];
 const REFRESH_MS = 30000;
 
 let events = [];
@@ -68,22 +70,30 @@ function eventLabel(e) {
   return [e.name, eventPlace(e), eventDates(e)].filter(Boolean).join(" · ");
 }
 
-function happeningNow(e, now) {
+// Is the event within `days` days of today (before it starts, while it runs, or after it ends)?
+function withinDays(e, now, days) {
   const start = localDate(e.start_date);
   const end = localDate(e.end_date) || start;
   if (!start) return false;
-  return now >= start.getTime() - WINDOW_MS && now <= end.getTime() + WINDOW_MS;
+  // end is local midnight on the last day; count that whole day.
+  return now >= start.getTime() - days * DAY_MS && now < end.getTime() + (days + 1) * DAY_MS;
 }
 
-function showAllEvents() {
-  return Boolean(store.state.showAllEventsInCatalog) || prefs.get(SHOW_ALL_KEY) === "1";
+// Which events the picker lists: the viewer's choice, else the site default
+// (an admin can make "all events" the default for everyone).
+function eventRange() {
+  const saved = prefs.get(RANGE_KEY);
+  if (RANGES.includes(saved)) return saved;
+  if (prefs.get(SHOW_ALL_KEY) === "1" || store.state.showAllEventsInCatalog) return "all";
+  return "10";
 }
 
 function visibleEvents() {
   const now = Date.now();
+  const range = eventRange();
   const query = ($("eventSearch")?.value || "").trim().toLowerCase();
   return events
-    .filter((e) => showAllEvents() || happeningNow(e, now))
+    .filter((e) => range === "all" || withinDays(e, now, Number(range)))
     .filter((e) => !query || eventLabel(e).toLowerCase().includes(query) || String(e.key).toLowerCase().includes(query));
 }
 
@@ -215,7 +225,7 @@ function matchCard(match, ctx) {
   else if (start && !practice) status = el("span", { class: "chip chip-open", "data-lock-at": String(start - LOCK_WINDOW_MS) }, lockChipText(start - LOCK_WINDOW_MS, now));
   else status = chip(practice ? "Doesn't count" : "Open", practice ? "muted" : "open");
 
-  const card = el("article", { class: `match-row state-${played ? "played" : locked ? "locked" : "open"}` });
+  const card = el("article", { "data-match": match.key, class: `match-row state-${played ? "played" : locked ? "locked" : "open"}` });
   card.append(el("div", { class: "match-meta" }, [el("span", { class: "match-label" }, matchLabel(match)), start ? el("span", { class: "match-time" }, formatMatchTime(start, now)) : null, status]));
 
   const row = el("div", { class: "alliance-row" });
@@ -303,7 +313,7 @@ function emptyState() {
     const none = visibleEvents().length === 0;
     return el("div", { class: "empty-card" }, [
       el("h3", {}, none ? "No events to show" : "Choose an event to start predicting"),
-      el("p", { class: "muted" }, none ? "Nothing is happening around now. Tick \"Show all events\" above to browse the whole season." : "Pick the event you're watching from the list above. Your choice is remembered.")
+      el("p", { class: "muted" }, none ? "No events in this range. Choose \"All events\" above to browse the whole season." : "Pick the event you're watching from the list above. Your choice is remembered.")
     ]);
   }
   if (event.status === "loading") return el("div", { class: "empty-card" }, [el("p", { class: "muted" }, "Loading matches...")]);
@@ -322,8 +332,8 @@ function emptyState() {
 
 function renderEventBar() {
   const updated = $("eventUpdated");
-  const showAll = $("eventShowAll");
-  if (showAll) showAll.checked = showAllEvents();
+  const range = $("eventRange");
+  if (range && document.activeElement !== range) range.value = eventRange();
   if (updated) {
     if (!runtime.event.key || !lastUpdatedAt) updated.textContent = "";
     else updated.textContent = refreshFailed ? `Couldn't refresh - showing data from ${formatMatchTime(lastUpdatedAt)}` : `Updated ${formatMatchTime(lastUpdatedAt)}`;
@@ -366,10 +376,12 @@ function renderNow() {
   ctx.scored = scorePredictions(event.matches, ctx.predictions);
   const now = Date.now();
   const byStart = (a, b) => (matchStartMs(a) ?? Infinity) - (matchStartMs(b) ?? Infinity);
-  const upcoming = event.matches.filter((m) => !isPlayed(m));
+  // Playoff games live in the bracket; listing them here too would just duplicate it.
+  const listed = playoffs ? event.matches.filter((m) => gameIdForMatch(m) === null) : event.matches;
+  const upcoming = listed.filter((m) => !isPlayed(m));
   const openMatches = upcoming.filter((m) => m.comp_level !== "pm" && !isLocked(m, now)).sort(byStart);
   const lockedMatches = upcoming.filter((m) => m.comp_level === "pm" || isLocked(m, now)).sort(byStart);
-  const done = event.matches.filter(isPlayed).sort((a, b) => (b.actual_time || b.time || 0) - (a.actual_time || a.time || 0));
+  const done = listed.filter(isPlayed).sort((a, b) => (b.actual_time || b.time || 0) - (a.actual_time || a.time || 0));
 
   fill(summary, summaryStrip(ctx, openMatches));
 
@@ -431,8 +443,9 @@ export function initMatchesView({ tbaConfigured: configured = true } = {}) {
   const select = $("eventRegionSelect");
   select?.addEventListener("change", (e) => selectEvent(e.target.value));
   $("eventSearch")?.addEventListener("input", rebuildEventSelect);
-  $("eventShowAll")?.addEventListener("change", (e) => {
-    prefs.set(SHOW_ALL_KEY, e.target.checked ? "1" : "");
+  $("eventRange")?.addEventListener("change", (e) => {
+    prefs.set(RANGE_KEY, e.target.value);
+    prefs.set(SHOW_ALL_KEY, "");
     rebuildEventSelect();
     render();
   });
@@ -447,11 +460,11 @@ export function initMatchesView({ tbaConfigured: configured = true } = {}) {
     renderNow();
   });
 
-  let lastShowAll = showAllEvents();
+  let lastRange = eventRange();
   store.subscribe(() => {
-    // Signing in as an admin can flip the global "show all events" setting.
-    if (showAllEvents() !== lastShowAll) {
-      lastShowAll = showAllEvents();
+    // Signing in can change the site default ("all events" set by an admin).
+    if (eventRange() !== lastRange) {
+      lastRange = eventRange();
       rebuildEventSelect();
     }
     render();

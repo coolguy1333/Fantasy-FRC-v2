@@ -116,6 +116,7 @@ button:disabled { cursor: default; }
 .event-row select { flex: 1; min-width: 0; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font: inherit; min-height: 44px; }
 .event-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 .event-tools .field-input { flex: 1 1 220px; }
+.event-range { padding: 8px 10px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font: inherit; font-size: 14px; min-height: 40px; }
 .warn { color: #ffb74d; }
 body[data-tab="adminTab"] #eventBar { display: none; }
 
