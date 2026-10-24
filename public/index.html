@@ -62,7 +62,12 @@
       <div id="eventTools" class="event-tools">
         <label for="eventSearch" class="sr-only">Search events</label>
         <input id="eventSearch" type="search" class="field-input hidden" placeholder="Search events by name or place" autocomplete="off" />
-        <label class="check-inline"><input type="checkbox" id="eventShowAll" /> Show all events</label>
+        <label for="eventRange" class="sr-only">Which events to list</label>
+        <select id="eventRange" class="event-range">
+          <option value="3">Within 3 days</option>
+          <option value="10">Within 10 days</option>
+          <option value="all">All events</option>
+        </select>
         <span id="eventUpdated" class="muted small"></span>
       </div>
     </div>

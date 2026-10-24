@@ -70,7 +70,16 @@ global.fetch = async (url, opts) => {
   if (path === "/event/2099playoffs/matches") return json(demoPlayoffs());
   if (/^\/events\/\d{4}\/simple$/.test(path)) {
     const ev = (key, name, state) => ({ key, name, country: "USA", state_prov: state, start_date: "2000-01-01", end_date: "2100-01-01" });
-    return json([ev("2099test", "Test Event", "CA"), ev("2099demo", "Silicon Valley Regional", "CA"), ev("2099playoffs", "Einstein Field Playoffs", "TX")]);
+    // Dated relative to today, for the "Within 3 / 10 days" event filter.
+    const inDays = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    const dated = (key, name, from) => ({ ...ev(key, name, "WA"), start_date: inDays(from), end_date: inDays(from + 2) });
+    return json([
+      ev("2099test", "Test Event", "CA"),
+      ev("2099demo", "Silicon Valley Regional", "CA"),
+      ev("2099playoffs", "Einstein Field Playoffs", "TX"),
+      dated("2099soon", "Next Week Regional", 6),
+      dated("2099later", "Next Month Regional", 30)
+    ]);
   }
   return json({ Error: "not found" }, 404);
 };

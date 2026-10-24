@@ -206,7 +206,7 @@ function settingsSection() {
     featuredRow,
     el("label", { class: "check-row" }, [
       el("input", { type: "checkbox", checked: Boolean(s.showAllEventsInCatalog), onchange: (e) => change((state) => (state.showAllEventsInCatalog = e.target.checked)) }),
-      el("span", {}, [el("strong", {}, "Show every event to everyone"), el("span", { class: "muted small block" }, "By default the event list only shows events happening around now.")])
+      el("span", {}, [el("strong", {}, "List every event by default"), el("span", { class: "muted small block" }, "Otherwise the event list starts on events within 10 days of today. Everyone can still pick \"Within 3 days\", \"Within 10 days\" or \"All events\" for themselves.")])
     ])
   );
 

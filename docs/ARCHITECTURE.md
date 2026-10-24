@@ -85,7 +85,7 @@ defined in `server/state/schema.js`:
 | `announcement` | `{ text, updatedAt }` | Site-wide message (also served to guests via `/api/runtime-config`) |
 | `siteSettings` | `{ featuredEvent }` | Event new visitors start on |
 | `profileSetupDone` | `{ [profileId]: boolean }` | Whether the onboarding modal has been completed |
-| `showAllEventsInCatalog` | `boolean` | Admin toggle: show every TBA event, not just the ~10-day window |
+| `showAllEventsInCatalog` | `boolean` | Admin toggle: the event list defaults to "All events" instead of "Within 10 days" (each viewer can also pick "Within 3 days", "Within 10 days" or "All events") |
 | `feedback` | `Array<{ profileId, name, contact, message, at }>` | Append-only feedback inbox (admin-only; written via `POST /api/feedback`) |
 
 `profileId` is the Google account's `sub` claim for signed-in users, or the

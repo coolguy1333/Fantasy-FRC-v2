@@ -115,6 +115,16 @@ const check = (name, ok, extra = "") => { results.push(ok); console.log(`${ok ? 
   check("bracket pick saved under <event>:<game>", Object.keys((await serverState()).bracketPicksByProfile.ava).some((k) => k.startsWith("2099playoffs:")));
   await page.click('#viewSwitch [data-view="matches"]');
   check("switching to the match list works", (await page.locator("#matchesView .match-row").count()) > 0);
+  check("playoff games aren't repeated in the match list", (await page.locator('#matchesView .match-row[data-match*="_sf"], #matchesView .match-row[data-match*="_f1"]').count()) === 0);
+  const listed = async () => page.locator("#eventRegionSelect option").evaluateAll((os) => os.map((o) => o.value).filter(Boolean));
+  check("event list defaults to within 10 days", JSON.stringify((await listed()).sort()) === JSON.stringify(["2099demo", "2099playoffs", "2099soon", "2099test"]));
+  await page.selectOption("#eventRange", "3");
+  check("'Within 3 days' hides events further out", !(await listed()).includes("2099soon") && (await listed()).includes("2099demo"));
+  await page.selectOption("#eventRange", "all");
+  check("'All events' lists the whole season", (await listed()).includes("2099later"));
+  await page.reload();
+  await page.waitForSelector("#eventRange");
+  check("the event range is remembered", (await page.locator("#eventRange").inputValue()) === "all");
 
   // ---- save indicator
   await page.click('#viewSwitch [data-view="bracket"]');
