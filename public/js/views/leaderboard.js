@@ -83,7 +83,9 @@ function render() {
   if (mode === "players") {
     const me = players.find((p) => p.id === store.profileId);
     fill(host, 
-      me ? el("p", { class: "muted standings-me" }, ["You're ", el("strong", {}, `${me.tied ? "tied for " : ""}#${me.rank}`), ` of ${players.length} with `, el("strong", {}, `${me.points} pts`)]) : null,
+      me
+        ? el("p", { class: "muted standings-me" }, ["You're ", el("strong", {}, `${me.tied ? "tied for " : ""}#${me.rank}`), ` of ${players.length} with `, el("strong", {}, `${me.points} pts`)])
+        : el("p", { class: "muted standings-me" }, "You haven't made a pick at this event yet - make one on the Matches tab to join the standings."),
       players.length ? playerTable(players, groups) : emptyCard("No scores yet", "Make some picks - points appear here as matches finish.")
     );
   } else if (mode === "myteam") {

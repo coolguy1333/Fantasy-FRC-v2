@@ -29,7 +29,7 @@ export function allianceButton({ color, teams, score = null, picked = false, won
 
 // The optional "guess the winning score" box. Only saves when the value really changed,
 // so tabbing past it (or tapping straight onto a button) doesn't trigger a rebuild.
-export function scoreGuessField({ value, label, onCommit }) {
+export function scoreGuessField({ value, label, onCommit, needsWinner = false }) {
   const input = el("input", {
     type: "number",
     min: "0",
@@ -44,7 +44,16 @@ export function scoreGuessField({ value, label, onCommit }) {
       if (next !== (value ?? null)) onCommit(next);
     }
   });
-  return el("label", { class: "score-guess" }, [el("span", { class: "score-guess-label" }, "Winning score guess (optional)"), input]);
+  return el("label", { class: "score-guess" }, [
+    el("span", { class: "score-guess-label" }, "Winning score guess (optional)"),
+    input,
+    needsWinner ? el("span", { class: "score-guess-hint" }, "Pick Red or Blue too - a score guess only counts with a winner pick.") : null
+  ]);
+}
+
+// Undo a pick on something still open.
+export function clearPickButton(onClear) {
+  return el("button", { type: "button", class: "link-btn clear-pick", onclick: onClear }, "Clear pick");
 }
 
 export const chip = (text, kind = "muted") => el("span", { class: `chip chip-${kind}` }, text);
@@ -63,5 +72,20 @@ export function resultLine({ made, breakdown, scoreGuess }) {
     el("strong", {}, head),
     parts.length ? el("span", { class: "result-detail" }, parts.join(", ")) : null,
     typeof scoreGuess === "number" && !breakdown.scorePoints ? el("span", { class: "result-detail" }, `your score guess: ${scoreGuess}`) : null
+  ]);
+}
+
+// "Crowd: 70% Red · 30% Blue" with a two-colour bar.
+export function crowdLine({ red, blue, total }) {
+  if (!total) return null;
+  const redPct = Math.round((red / total) * 100);
+  const bluePct = 100 - redPct;
+  const text = `Crowd: ${redPct}% Red \u00b7 ${bluePct}% Blue (${total} pick${total === 1 ? "" : "s"})`;
+  return el("div", { class: "crowd", title: text }, [
+    el("div", { class: "crowd-bar", role: "img", "aria-label": text }, [
+      el("span", { class: "crowd-red", style: `width:${redPct}%` }),
+      el("span", { class: "crowd-blue", style: `width:${bluePct}%` })
+    ]),
+    el("span", { class: "crowd-text" }, text)
   ]);
 }

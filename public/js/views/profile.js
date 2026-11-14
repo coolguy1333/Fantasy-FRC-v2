@@ -31,6 +31,7 @@ export async function createTeam(name) {
   const teamId = `team_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const code = genCode(store.state.teamInviteCodes);
   const result = await store.mutate((state) => {
+    dropAdminOfCurrentTeam(state);
     state.groups[teamId] = { name, createdAt: Date.now() };
     state.teamInviteCodes[teamId] = code;
     state.teamAdmins[teamId] = [store.profileId];
@@ -56,8 +57,17 @@ const JOIN_ERRORS = {
   failed: "Couldn't join right now. Please try again."
 };
 
+// Someone who leaves a team stops running it too (the server does the same on join).
+function dropAdminOfCurrentTeam(state) {
+  const teamId = state.profileTeams[store.profileId];
+  if (teamId && Array.isArray(state.teamAdmins[teamId]) && state.teamAdmins[teamId].includes(store.profileId)) {
+    state.teamAdmins[teamId] = state.teamAdmins[teamId].filter((id) => id !== store.profileId);
+  }
+}
+
 export function leaveTeam() {
   return store.mutate((state) => {
+    dropAdminOfCurrentTeam(state);
     delete state.profileTeams[store.profileId];
   });
 }
@@ -110,7 +120,7 @@ function teamSection({ draft, redraw }) {
           class: "secondary-btn",
           onclick: async () => {
             const alone = isAdmin && admins.length === 1;
-            const ok = await confirmDialog(alone ? `Leave ${team.name}? You're its only admin, so it will be left without one.` : `Leave ${team.name}?`, { title: "Leave team", confirmLabel: "Leave team", danger: true });
+            const ok = await confirmDialog(alone ? `Leave ${team.name}? You're its only admin - make a teammate an admin first (Admin tab), or only a site admin will be able to manage it.` : `Leave ${team.name}? Your picks and points stay with you.`, { title: "Leave team", confirmLabel: "Leave team", danger: true });
             if (ok) {
               await leaveTeam();
               toast("You left the team", "success");

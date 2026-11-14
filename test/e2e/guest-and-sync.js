@@ -70,6 +70,30 @@ const check = (name, ok, extra = "") => { results.push(ok); console.log(`${ok ? 
   check("STILL SIGNED IN after a refresh", await signedIn());
   check("server pick shows after refresh", (await rowFor("Qual 4").locator(".alliance-blue.picked").count()) === 1);
 
+  // ---------- small writes, delta reads
+  const writes = [];
+  page.on("request", (r) => r.url().endsWith("/api/state") && ["PUT", "PATCH"].includes(r.method()) && writes.push({ method: r.method(), size: (r.postData() || "").length }));
+  await rowFor("Qual 4").locator(".alliance-red").click();
+  await wait(700);
+  check("a pick is sent as a small PATCH, not the whole document", writes.length >= 1 && writes.every((w) => w.method === "PATCH" && w.size < 400), JSON.stringify(writes));
+  const cara = token("cara");
+  const c0 = await api("GET", "/api/state", cara);
+  await s.call("PATCH", "/api/state", { tok: cara, body: { updatedAt: c0.updatedAt, patch: { profiles: { set: { cara: { name: "Cara" } } } } } });
+  const polled = await page.evaluate(async () => {
+    const { store } = await import("/js/store.js");
+    const seen = [];
+    const orig = window.fetch;
+    window.fetch = async (...a) => {
+      const res = await orig(...a);
+      if (String(a[0]).includes("/api/state?")) seen.push({ url: String(a[0]), body: await res.clone().json() });
+      return res;
+    };
+    await store.loadRemote();
+    window.fetch = orig;
+    return { seen: seen.map((x) => ({ url: x.url, hasPatch: Boolean(x.body.patch), hasPayload: Boolean(x.body.payload) })), cara: store.state.profiles.cara?.name };
+  });
+  check("a poll fetches only what changed and applies it", polled.cara === "Cara" && polled.seen.length === 1 && polled.seen[0].hasPatch && !polled.seen[0].hasPayload, JSON.stringify(polled));
+
   // ---------- conflict: someone else saves, then we save from a stale copy
   const bobTok = token("bob");
   const b = await api("GET", "/api/state", bobTok);
