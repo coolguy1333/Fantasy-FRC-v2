@@ -1,8 +1,8 @@
 import { store } from "../store.js";
 import { el, formatMatchTime, isLocked, matchStartMs, teamNumbers, fill } from "../ui.js";
 import { BRACKET_GAMES, BRACKET_POINTS_BY_GAME } from "../constants.js";
-import { bracketEntriesForEvent, bracketKey, findGameMatch, isPlayed, matchWinner, scoreBracket } from "../scoring.js";
-import { allianceButton, chip, resultLine, scoreGuessField } from "./cards.js";
+import { bracketEntriesForEvent, bracketKey, crowdPicks, findGameMatch, isPlayed, matchWinner, scoreBracket } from "../scoring.js";
+import { allianceButton, chip, clearPickButton, crowdLine, resultLine, scoreGuessField } from "./cards.js";
 
 function setPick(eventKey, gameId, color) {
   store.mutate((state) => {
@@ -17,6 +17,14 @@ function setScoreGuess(eventKey, gameId, guess) {
     const id = store.profileId;
     state.bracketScoreByProfile[id] = state.bracketScoreByProfile[id] || {};
     state.bracketScoreByProfile[id][bracketKey(eventKey, gameId)] = guess;
+  });
+}
+
+function clearGame(eventKey, gameId) {
+  store.mutate((state) => {
+    const id = store.profileId;
+    delete state.bracketPicksByProfile[id]?.[bracketKey(eventKey, gameId)];
+    delete state.bracketScoreByProfile[id]?.[bracketKey(eventKey, gameId)];
   });
 }
 
@@ -67,14 +75,20 @@ function gameCard(game, ctx) {
       scoreGuessField({
         value: scores[game.id],
         label: `Winning score guess for ${game.label}`,
+        needsWinner: !pick && typeof scores[game.id] === "number",
         onCommit: (guess) => setScoreGuess(eventKey, game.id, guess)
       })
     );
+    if (pick || typeof scores[game.id] === "number") card.append(clearPickButton(() => clearGame(eventKey, game.id)));
   } else if (decided && winner !== "tie") {
     const made = Boolean(pick) || typeof scores[game.id] === "number";
     card.append(resultLine({ made, breakdown: result || { correct: false, points: 0, pickPoints: 0, scorePoints: 0, streakBonus: 0 }, scoreGuess: scores[game.id] }));
   } else if (locked && pick) {
     card.append(el("div", { class: "result result-none" }, "Locked in"));
+  }
+  if ((decided || locked) && store.user) {
+    const crowd = crowdLine(crowdPicks(store.state, bracketKey(eventKey, game.id), "bracketPicksByProfile"));
+    if (crowd) card.append(crowd);
   }
   return card;
 }

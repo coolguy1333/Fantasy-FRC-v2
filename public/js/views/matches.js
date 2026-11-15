@@ -2,9 +2,9 @@ import { api } from "../api.js";
 import { store } from "../store.js";
 import { runtime, setEvent } from "../runtime.js";
 import { $, el, formatCountdown, formatMatchTime, isLocked, lockOverride, makeGuardedRender, matchLabel, matchStartMs, teamNumbers, fill } from "../ui.js";
-import { gameIdForMatch, hasPlayoffs, isPlayed, matchWinner, playerRows, rankRows, scorePredictions, totalsFor } from "../scoring.js";
+import { crowdPicks, gameIdForMatch, hasPlayoffs, isPlayed, matchWinner, playerRows, rankRows, scorePredictions, totalsFor } from "../scoring.js";
 import { LOCK_WINDOW_MS } from "../constants.js";
-import { allianceButton, chip, resultLine, scoreGuessField } from "./cards.js";
+import { allianceButton, chip, clearPickButton, crowdLine, resultLine, scoreGuessField } from "./cards.js";
 import { renderBracket } from "./bracket.js";
 import { buildHowToPlay } from "./help.js";
 
@@ -16,6 +16,7 @@ const SEARCH_THRESHOLD = 8; // only show the event search box when the list is l
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RANGES = ["3", "10", "all"];
 const REFRESH_MS = 30000;
+const STALE_AFTER_MS = 2 * 60 * 1000;
 
 let events = [];
 let eventsStatus = "idle"; // idle | loading | ready | error
@@ -161,8 +162,9 @@ async function loadMatches() {
   if (!key || loadingMatchesFor === key) return;
   loadingMatchesFor = key;
   let matches = null;
+  let asOf = 0;
   try {
-    matches = await api.tbaEventMatches(key);
+    ({ data: matches, asOf } = await api.tbaEventMatchesWithAge(key));
   } catch {
     matches = null;
   }
@@ -170,8 +172,9 @@ async function loadMatches() {
   // The player may have picked a different event while this was loading.
   if (key !== selectedEventKey) return;
   if (matches) {
-    refreshFailed = false;
-    lastUpdatedAt = Date.now();
+    // The server falls back to its last good copy while TBA is down: say so.
+    refreshFailed = Date.now() - asOf > STALE_AFTER_MS;
+    lastUpdatedAt = asOf;
     setEvent({ matches, status: "ready" });
   } else {
     refreshFailed = true;
@@ -190,6 +193,13 @@ function setPrediction(matchKey, patch) {
     state.predictionsByProfile[profileId] = state.predictionsByProfile[profileId] || {};
     const existing = state.predictionsByProfile[profileId][matchKey] || {};
     state.predictionsByProfile[profileId][matchKey] = { ...existing, ...patch, predictedAt: Date.now() };
+  });
+}
+
+function clearPrediction(matchKey) {
+  store.mutate((state) => {
+    const mine = state.predictionsByProfile[store.profileId];
+    if (mine) delete mine[matchKey];
   });
 }
 
@@ -245,7 +255,15 @@ function matchCard(match, ctx) {
   card.append(row);
 
   if (open) {
-    card.append(scoreGuessField({ value: prediction.score, label: `Winning score guess for ${matchLabel(match)}`, onCommit: (score) => setPrediction(match.key, { score }) }));
+    card.append(
+      scoreGuessField({
+        value: prediction.score,
+        label: `Winning score guess for ${matchLabel(match)}`,
+        needsWinner: !prediction.winner && typeof prediction.score === "number",
+        onCommit: (score) => setPrediction(match.key, { score })
+      })
+    );
+    if (prediction.winner || typeof prediction.score === "number") card.append(clearPickButton(() => clearPrediction(match.key)));
   } else if (played) {
     card.append(
       winner === "tie"
@@ -256,6 +274,10 @@ function matchCard(match, ctx) {
     card.append(
       el("div", { class: "result result-none" }, prediction.winner ? (typeof prediction.score === "number" ? `Locked in · score guess ${prediction.score}` : "Locked in") : "No pick made")
     );
+  }
+  if ((played || locked) && store.user && !practice) {
+    const crowd = crowdLine(crowdPicks(store.state, match.key));
+    if (crowd) card.append(crowd);
   }
   return card;
 }
@@ -284,6 +306,19 @@ function showMore(key, total, step) {
   );
 }
 
+// Scroll to an open match you haven't picked (showing more cards if it's further down).
+function jumpTo(match, openMatches) {
+  const index = openMatches.indexOf(match);
+  if (index >= shown.open) {
+    shown.open = index + 1;
+    renderNow();
+  }
+  const card = document.querySelector(`.match-row[data-match="${CSS.escape(match.key)}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.querySelector(".alliance-btn:not(:disabled)")?.focus({ preventScroll: true });
+}
+
 function summaryStrip(ctx, openMatches) {
   const { event } = runtime;
   const totals = totalsFor(store.state, store.profileId, event.matches, event.key);
@@ -295,6 +330,8 @@ function summaryStrip(ctx, openMatches) {
   }
   const picked = openMatches.filter((m) => ctx.predictions[m.key]?.winner).length;
   if (openMatches.length) chips.push(el("span", { class: "stat" }, [el("strong", {}, `${picked} of ${openMatches.length}`), " open matches picked"]));
+  const next = openMatches.find((m) => !ctx.predictions[m.key]?.winner);
+  if (next) chips.push(el("button", { type: "button", class: "secondary-btn next-unpicked", onclick: () => jumpTo(next, openMatches) }, "Next unpicked"));
   return el("div", { class: "summary-strip" }, chips);
 }
 

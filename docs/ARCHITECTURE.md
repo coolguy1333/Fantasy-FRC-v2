@@ -151,8 +151,10 @@ On top of the diff-based rules, `PUT /api/state` also:
   prediction or bracket pick is checked against live TBA data; picks for a
   match that has been played or is within 10 minutes of starting are refused
   with `403 prediction_locked`, unless an admin override in `adminByEvent` says
-  otherwise ("open" keeps an unplayed match open; "locked" closes it early). If TBA can't be reached the write is refused
-  (`503`) rather than guessed. Global admins are exempt.
+  otherwise ("open" keeps an unplayed match open; "locked" closes it early).
+  If TBA is down, the server uses its last good copy of the schedule for up to
+  30 minutes (times barely change, so locks still close on schedule); past that
+  the write is refused (`503`) rather than guessed. Global admins are exempt.
 - **Hides admin-only data** (`server/state/redact.js`). `feedback`,
   `globalAdminIds` and `globalAdminEmails` are returned empty to non-admins, and
   `teamInviteCodes` only holds the codes of teams the caller runs or belongs to.
@@ -163,8 +165,25 @@ On top of the diff-based rules, `PUT /api/state` also:
 
 ## Sync and offline-safety
 
-`public/js/store.js` is the client-side state manager. Two things worth
+**Small writes and reads.** The document is still one JSON object, but it doesn't
+travel whole. A save is `PATCH /api/state` with just the changed keys per domain
+(`server/state/patch.js`; `public/js/patch.js` is the browser copy and
+`test/patch.test.js` keeps them identical). The server applies the patch to the
+current document and then runs exactly the same checks as a whole-document `PUT`
+(validation, authorization, locks); a write that changes nothing makes no new
+version. `server/db.js` keeps the parsed document in memory (this process is the
+only writer) and a log of the last 500 writes as patches, so a poll with
+`?since=<version>&delta=1` gets only what changed since then, redacted for the
+caller. A version older than the log (or from before a restart), or a caller
+whose admin role changed, gets the whole document instead.
+
+`public/js/store.js` is the client-side state manager. Things worth
 understanding if you're touching it:
+
+- **`serverState`**: the document exactly as the server last confirmed it, at
+  version `updatedAt`. A save sends `diffState(serverState, state)`; a poll's
+  patch is applied to both. The two never share objects, since mutators change
+  `state` in place.
 
 - **`dirty` flag**: any local mutation sets `store.dirty = true` until the
   server confirms the write. While dirty, the 30-second poll loop
@@ -173,8 +192,8 @@ understanding if you're touching it:
   exists specifically to prevent a failed save (e.g. an expired Google
   token) from silently discarding a player's prediction on the next poll.
 - **`pending` mutators and conflicts**: `store.mutate(fn)` also queues `fn`.
-  If the server answers `409` (someone else saved first), the store reloads
-  the document, re-applies the queued mutators on top of it and retries, so a
+  If the server answers `409` (someone else saved first), the store fetches
+  just what changed since its version, re-applies the queued mutators on top of it and retries, so a
   busy room never loses or blocks anyone's save. Mutators must therefore only
   depend on the state they are handed.
 - **Rejections**: a 4xx that will never succeed (`403` locked/forbidden, `400`,
@@ -193,11 +212,23 @@ understanding if you're touching it:
   `makeGuardedRender` (`ui.js`) holds a render back while a text field in the
   view has focus, so typing a score isn't wiped mid-keystroke.
 
+## Backups and updates
+
+- `server/backup.js` copies the database to `DATA_DIR/backups/fantasyfrc-YYYY-MM-DD.db`
+  once a day with SQLite's online backup (safe while running) and keeps the last
+  `BACKUP_KEEP_DAYS` (default 14; `0` turns it off).
+- The server fingerprints `public/` at startup (`config.buildId`) and sends it as
+  `X-App-Build` on every API answer. A tab that loaded an older build shows "A new
+  version is available" with a Reload button.
+
 ## Known limitations
 
-- **The leaderboard is per event.** Standings are computed from the matches of
-  the event currently selected on the Matches tab; there is no season-long
-  total yet.
+- **Season standings are worked out in the browser.** The Season view fetches the
+  matches of every event this year that anyone picked at (through the TBA proxy,
+  four at a time) and adds up each event's points. Fine for a league; a very large
+  site would want this computed on the server.
+- **One document, one process.** Everything lives in one JSON document in SQLite,
+  kept in memory by the single server process. Run one instance per data directory.
 - **Guest picks are carried over once.** On first sign-in the app offers to move
   guest picks for matches that are still open at the event on screen; picks for
   other events, or matches that have already locked, stay behind.

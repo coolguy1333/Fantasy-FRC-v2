@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { GUEST_PROFILE_ID, POLL_INTERVAL_MS } from "./constants.js";
+import { applyPatch, diffState } from "./patch.js";
 
 const GUEST_STORAGE_KEY = "ffrc_guest_state_v1";
 const RETRY_BASE_MS = 5000;
@@ -76,6 +77,10 @@ class Store {
     this.user = null; // { sub, email, name, picture } | null
     this.isGlobalAdmin = false;
     this.state = emptyState();
+    // The document exactly as the server last confirmed it (version updatedAt).
+    // Saves send only the difference between this and `state`, and polls apply
+    // just what changed on the server. Never shares objects with `state`.
+    this.serverState = emptyState();
     this.updatedAt = 0;
     this.listeners = new Set();
     this._pollHandle = null;
@@ -152,14 +157,15 @@ class Store {
   async signIn(idToken) {
     const previous = { user: this.user, isGlobalAdmin: this.isGlobalAdmin };
     const result = await api.verifyGoogle(idToken); // if this fails nothing has changed
-    if (previous.user && previous.user.sub !== result.user.sub) this._resetSync(); // never replay one account's changes onto another
+    const switched = Boolean(previous.user) && previous.user.sub !== result.user.sub;
+    if (switched) this._resetSync(); // never replay one account's changes onto another
     this.user = result.user;
     this.isGlobalAdmin = Boolean(result.isGlobalAdmin);
     if (this.dirty) {
       // A local change from before this sign-in (e.g. the session ended
       // mid-use) - push it rather than pulling the server's version over it.
       await this._persistRemote();
-    } else if (!(await this._loadAfterSignIn(!previous.user))) {
+    } else if (!(await this._loadAfterSignIn(!previous.user || switched))) {
       this.user = previous.user;
       this.isGlobalAdmin = previous.isGlobalAdmin;
       throw new Error("session_not_established");
@@ -175,6 +181,7 @@ class Store {
     this._resetSync();
     this.stopPolling();
     this.updatedAt = 0;
+    this.serverState = emptyState();
     this.state = loadGuestState();
     this.emit();
   }
@@ -182,6 +189,8 @@ class Store {
   enterGuestMode() {
     this.user = null;
     this._resetSync();
+    this.updatedAt = 0;
+    this.serverState = emptyState();
     this.state = loadGuestState();
     this.emit();
   }
@@ -208,11 +217,25 @@ class Store {
     return "saved";
   }
 
+  // Full document: { payload }. Changes since our version: { patch }. Nothing new: { unchanged }.
+  _adopt(result) {
+    if (typeof result.isGlobalAdmin === "boolean") this.isGlobalAdmin = result.isGlobalAdmin;
+    if (result.patch) {
+      this.serverState = applyPatch(this.serverState, structuredClone(result.patch));
+      this.state = applyPatch(this.state, structuredClone(result.patch));
+    } else if (result.payload) {
+      this.serverState = result.payload;
+      this.state = structuredClone(result.payload);
+    }
+    this.updatedAt = result.updatedAt;
+  }
+
   async loadRemote({ force = false } = {}) {
     if (this.dirty) return; // never clobber an unsaved local change
-    const result = await api.getState(force ? undefined : this.updatedAt);
+    const base = this.updatedAt;
+    const result = await api.getState(force || !base ? undefined : base, { delta: true, admin: this.isGlobalAdmin });
     // Something may have changed while the request was in flight.
-    if (this.dirty || !this.user) return;
+    if (this.dirty || !this.user || this.updatedAt !== base) return;
     const recovered = this.syncError === "session_expired" || this.syncError === "save_failed" || this.syncError === "load_failed";
     if (recovered) {
       this.syncError = null;
@@ -223,8 +246,7 @@ class Store {
       return;
     }
     if (force || result.updatedAt !== this.updatedAt) {
-      this.state = result.payload;
-      this.updatedAt = result.updatedAt;
+      this._adopt(result);
       this.emit();
     } else if (recovered) {
       this.emit();
@@ -292,7 +314,11 @@ class Store {
     for (let conflicts = 0; conflicts <= MAX_CONFLICT_RETRIES; ) {
       const sent = this.pending.length;
       try {
-        const result = await api.putState(this.state, this.updatedAt);
+        // Only what changed goes over the wire, not the whole document.
+        const snapshot = structuredClone(this.state);
+        const patch = diffState(this.serverState, snapshot);
+        const result = Object.keys(patch).length ? await api.patchState(patch, this.updatedAt) : { updatedAt: this.updatedAt };
+        this.serverState = snapshot;
         this.updatedAt = result.updatedAt;
         this.pending.splice(0, sent);
         this.dirty = this.pending.length > 0;
@@ -315,10 +341,14 @@ class Store {
     return this._onSaveError(new Error("too_many_conflicts"));
   }
 
+  // Someone saved first: catch up on just what they changed, then re-apply ours on top.
   async _rebase() {
-    const { payload, updatedAt } = await api.getState();
-    this.state = payload;
-    this.updatedAt = updatedAt;
+    const result = await api.getState(this.updatedAt || undefined, { delta: true, admin: this.isGlobalAdmin });
+    if (typeof result.isGlobalAdmin === "boolean") this.isGlobalAdmin = result.isGlobalAdmin;
+    if (result.patch) this.serverState = applyPatch(this.serverState, structuredClone(result.patch));
+    else if (result.payload) this.serverState = result.payload;
+    this.state = structuredClone(this.serverState);
+    this.updatedAt = result.updatedAt;
     for (const mutator of this.pending) {
       try {
         mutator(this.state);
@@ -336,6 +366,8 @@ class Store {
       this.pending = [];
       this.dirty = false;
       this._clearRetry();
+      // Back to what the server has, even if the reload below fails.
+      this.state = structuredClone(this.serverState);
       this.syncError = "rejected";
       this.syncErrorCode = err.message;
       setTimeout(() => {

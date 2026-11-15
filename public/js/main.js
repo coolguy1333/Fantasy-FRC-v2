@@ -209,6 +209,38 @@ function wireFeedbackForm() {
   });
 }
 
+// A deploy happened while this page was open: offer a reload (once nothing is unsaved).
+function wireUpdatePrompt() {
+  document.addEventListener("appupdate", () => {
+    const box = $("updateBanner");
+    if (!box) return;
+    box.classList.remove("hidden");
+    fill(
+      box,
+      el("p", { class: "announcement-text" }, "A new version of Fantasy FRC is available."),
+      el(
+        "button",
+        {
+          type: "button",
+          class: "announcement-close",
+          onclick: async () => {
+            if (store.dirty) await store.reload().catch(() => {});
+            location.reload();
+          }
+        },
+        "Reload"
+      )
+    );
+  });
+}
+
+function wireThemePicker() {
+  const select = $("themeSelect");
+  if (!select || !window.ffrcTheme) return;
+  select.value = window.ffrcTheme.get();
+  select.addEventListener("change", () => window.ffrcTheme.set(select.value));
+}
+
 // Unsaved predictions live only in memory until the server confirms them.
 function warnBeforeLosingUnsavedChanges() {
   window.addEventListener("beforeunload", (e) => {
@@ -267,6 +299,8 @@ async function boot() {
   wireNav();
   wireProfileMenu();
   wireFeedbackForm();
+  wireThemePicker();
+  wireUpdatePrompt();
   warnBeforeLosingUnsavedChanges();
 
   store.subscribe(onStoreChange);

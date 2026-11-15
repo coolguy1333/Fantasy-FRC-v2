@@ -22,7 +22,8 @@ together, and [`docs/API.md`](./docs/API.md) for the REST API.
 
 ## Before opening a PR
 
-- **Run `npm test`.** If you touched `server/state/authorize.js` or
+- **Run `npm run check` and `npm test`** (CI runs both, plus the browser tests and a
+  Docker build, on every PR). If you touched `server/state/authorize.js` or
   `locks.js` - the access-control model - add a case to `test/api.test.js`
   covering your change, including at least one that *should* be rejected.
 - **If you touched anything in `public/`**: don't add `onclick=`/`onsubmit=`
@@ -30,8 +31,12 @@ together, and [`docs/API.md`](./docs/API.md) for the REST API.
   (`server/security.js`) blocks inline script by design. Wire new
   interactivity with `addEventListener` from a `.js` file instead, following
   the pattern in `public/js/main.js`.
+- **If you touched `server/state/patch.js` or `public/js/patch.js`**: change both
+  the same way - `test/patch.test.js` fails if the browser and server describe a
+  change differently.
 - **If you touched `public/js/store.js`**: be careful around the `dirty`
-  flag and polling - it exists specifically to stop a failed/expired save
+  flag, `serverState` (the last copy the server confirmed - saves send only the
+  difference from it) and polling - it exists specifically to stop a failed/expired save
   from being silently overwritten by the next poll. See
   [`docs/ARCHITECTURE.md#sync-and-offline-safety`](./docs/ARCHITECTURE.md#sync-and-offline-safety).
 - Run the app locally and click through the flow you changed. `npm run test:e2e`

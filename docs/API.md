@@ -47,7 +47,7 @@ Revokes the current session and clears the cookie. **200** `{ "ok": true }`.
 Tells the client what's configured server-side, before any auth happens.
 
 - **Auth:** No
-- **200:** `{ "appVersion": "2.1.0", "googleClientId": "...", "authConfigured": true, "tbaConfigured": true, "announcement": "", "featuredEvent": "", "adminClaimAvailable": false }`
+- **200:** `{ "appVersion": "2.2.0", "build": "3f2a9c1d0b7e", "googleClientId": "...", "authConfigured": true, "tbaConfigured": true, "announcement": "", "featuredEvent": "", "adminClaimAvailable": false }`
   - `announcement` - site-wide message set by an admin (shown to guests too)
   - `featuredEvent` - event key new visitors start on (empty = they choose)
   - `adminClaimAvailable` - true while the site has no admin in its data, so the
@@ -59,7 +59,8 @@ Liveness check for monitoring, systemd and the WebManager health probe. Exempt
 from the HTTPS requirement so a plain-HTTP probe works.
 
 - **Auth:** No
-- **200:** `{ "ok": true }`
+- **200:** `{ "ok": true }` - the database answered
+- **503:** `{ "ok": false, "error": "database_unavailable" }`
 
 ## `GET /api/state`
 
@@ -68,17 +69,38 @@ Fetch the shared-state document.
 - **Auth:** Yes
 - **Rate limit:** `read` limiter
 - **Query:** `since=<updatedAt>` (optional). If that is still the current
-  version the answer is just `{ "unchanged": true, "updatedAt": N }`, which is what
-  the browser's 30-second poll sends.
-- **200:** `{ "payload": { ...shared state, see docs/ARCHITECTURE.md#data-model... }, "updatedAt": 1234567890 }`
+  version the answer is just `{ "unchanged": true, "updatedAt": N }`. Add
+  `delta=1&admin=<0|1>` (the role your copy was built for) to get only what changed
+  since then - what the browser's 30-second poll sends.
+- **200:** one of
+  - `{ "payload": { ...shared state, see docs/ARCHITECTURE.md#data-model... }, "updatedAt": 1234567890, "isGlobalAdmin": false }`
+  - `{ "unchanged": true, "updatedAt": 1234567890 }`
+  - `{ "patch": { ...see PATCH below... }, "since": 1234567000, "updatedAt": 1234567890, "isGlobalAdmin": false }` -
+    apply it to your copy at version `since`. You get the whole document instead if
+    `since` is too old (or from before a server restart) or your role changed.
 
 For anyone who isn't a global admin, `feedback`, `globalAdminIds` and
 `globalAdminEmails` come back empty, and `teamInviteCodes` only holds the codes of
 teams they administer or belong to.
 
+## `PATCH /api/state`
+
+Change the shared-state document by sending only what changed - what the app
+does for every pick. Same checks, limits and errors as `PUT` below.
+
+- **Body:** `{ "patch": { ... }, "updatedAt": <the updatedAt your copy is at> }`, where
+  each changed domain is either `{ "set": { "<key>": <value> }, "unset": ["<key>"] }`
+  (object domains such as `predictionsByProfile`) or `{ "value": <whole value> }`
+  (arrays and booleans). Example - one pick:
+  `{ "patch": { "predictionsByProfile": { "set": { "<your sub>": { "2026casj_qm12": { "winner": "red", "score": 85 } } } } }, "updatedAt": 1234567890 }`
+  (a domain key's value is replaced whole, so send all of your own predictions).
+- **200:** `{ "ok": true, "updatedAt": N }` (unchanged `updatedAt` if nothing actually changed)
+- **400:** `invalid_patch` (unknown domain, malformed entry, or a `__proto__`-style key)
+
 ## `PUT /api/state`
 
-Replace the shared-state document. The server diffs the incoming document
+Replace the shared-state document (the admin console's restore uses this; a
+domain left out of `payload` keeps its stored value). The server diffs the incoming document
 against the current one and rejects the write if any changed key falls
 outside what the requester is allowed to touch - see
 [`docs/ARCHITECTURE.md#authorization-model`](./ARCHITECTURE.md#authorization-model).
@@ -100,7 +122,8 @@ outside what the requester is allowed to touch - see
 - **409:** `{ "error": "stale_state", "updatedAt": <current> }` - someone else saved
   since `updatedAt` was read. Reload the state, re-apply your change, retry.
 - **503:** `lock_check_unavailable` - TBA couldn't be reached to verify match
-  times; the write is refused rather than guessed. Retry later.
+  times (and there's no copy from the last 30 minutes); the write is refused
+  rather than guessed. Retry later.
 
 ## Teams
 
@@ -129,7 +152,7 @@ document).
 
 **Auth:** Yes; the last two need a global admin (**403** `global_admin_required` otherwise).
 Everything else the console edits (players, teams, picks, locks, announcement,
-featured event, backup restore) is an ordinary `PUT /api/state` by a global admin.
+featured event) is an ordinary `PATCH /api/state` by a global admin; backup restore is a `PUT`.
 
 ## `POST /api/feedback`
 
@@ -149,7 +172,9 @@ the browser. They need **no sign-in** (guests use them too), so they are
 rate limited per IP, restrict keys to the shape TBA uses (`^\d{4}[a-z0-9]{1,24}$`),
 cache successes for 15 s and failures for 10-60 s, and time out after 10 s.
 Errors: `400` for a malformed key, `404 tba_not_found`, `502 tba_upstream_error` /
-`tba_unreachable`, `503 tba_not_configured`.
+`tba_unreachable`, `503 tba_not_configured`. While TBA is down, the last good
+answer (up to 30 minutes old) is served instead of an error; the `X-Data-As-Of`
+header (milliseconds since the epoch) says when it was actually fetched.
 
 - `GET /api/tba/events/:year/simple` - the season's events
 - `GET /api/tba/event/:eventKey/matches` - match list/results
@@ -157,6 +182,13 @@ Errors: `400` for a malformed key, `404 tba_not_found`, `502 tba_upstream_error`
 - `GET /api/tba/event/:eventKey/alliances` - playoff alliances
 
 **Rate limit:** `tba` limiter.
+
+## Every API response
+
+- `Cache-Control: no-store`
+- `X-App-Build: <id>` - a fingerprint of the frontend files the server is running
+  (also `build` in `/api/runtime-config`). The browser compares it with the build
+  it loaded and offers a reload after a deploy.
 
 ## Errors
 

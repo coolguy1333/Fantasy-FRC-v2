@@ -3,8 +3,9 @@ const express = require("express");
 const compression = require("compression");
 const config = require("./config");
 const apiRoutes = require("./routes");
-const { db, readState } = require("./db");
+const { db, peekState } = require("./db");
 const { purgeExpiredSessions } = require("./sessions");
+const { scheduleBackups } = require("./backup");
 const { SETUP_CODE, claimAvailable } = require("./setup");
 const { maskEmail } = require("./emails");
 const { securityHeaders, enforceTransport, enforceLocalApiOnly } = require("./security");
@@ -61,7 +62,7 @@ const server = app.listen(config.port, config.host, () => {
   } else if (config.googleClientId) {
     console.warn("GLOBAL_ADMIN_EMAILS not set - use the setup code below, or set it to your Google email.");
   }
-  if (config.googleClientId && claimAvailable(readState().state)) {
+  if (config.googleClientId && claimAvailable(peekState().state)) {
     console.log(`Admin setup code: ${SETUP_CODE} - sign in, open the menu at the top right, choose "Profile & team" and enter it to become a site admin.`);
   }
   if (config.googleClientId) {
@@ -72,6 +73,7 @@ const server = app.listen(config.port, config.host, () => {
 
 purgeExpiredSessions();
 setInterval(purgeExpiredSessions, 60 * 60 * 1000).unref();
+scheduleBackups();
 
 // Stop cleanly on SIGTERM/SIGINT: stop accepting new connections, close the
 // database, then exit - so a host that restarts/redeploys the process

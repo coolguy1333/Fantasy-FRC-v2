@@ -1,4 +1,6 @@
 const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
 require("dotenv").config();
 const { parseEmailList, parseList } = require("./emails");
 
@@ -21,6 +23,27 @@ const dataDir = process.env.DATA_DIR
   ? path.resolve(process.env.FF_DATA_DIR)
   : path.join(__dirname, "..", "data");
 
+// A fingerprint of the frontend files, so an open tab can tell it's out of date
+// after a deploy (even one that didn't change the version number).
+function buildIdOf(dir) {
+  const hash = crypto.createHash("sha1");
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else hash.update(entry.name).update(fs.readFileSync(full));
+    }
+  };
+  try {
+    walk(dir);
+  } catch {
+    return "unknown";
+  }
+  return hash.digest("hex").slice(0, 12);
+}
+
+const publicDir = path.join(__dirname, "..", "public");
+
 module.exports = {
   host: process.env.HOST || "0.0.0.0",
   port: Number(process.env.PORT || 3000),
@@ -32,10 +55,13 @@ module.exports = {
   publicUrl: String(process.env.PUBLIC_URL || "").trim(),
   dataDir,
   dbPath: path.join(dataDir, "fantasyfrc.db"),
-  publicDir: path.join(__dirname, "..", "public"),
+  publicDir,
+  buildId: buildIdOf(publicDir),
   tbaApiKey: String(process.env.TBA_API_KEY || "").trim(),
   tbaApiBase: "https://www.thebluealliance.com/api/v3",
   // How long a sign-in lasts. Sliding: active people are never signed out.
+  // Daily database copies kept in DATA_DIR/backups (0 turns backups off).
+  backupKeepDays: process.env.BACKUP_KEEP_DAYS === undefined || process.env.BACKUP_KEEP_DAYS === "" ? 14 : Math.max(0, Math.floor(Number(process.env.BACKUP_KEEP_DAYS) || 0)),
   sessionTtlMs: (positiveNumber(process.env.SESSION_TTL_DAYS) || 30) * 24 * 60 * 60 * 1000,
   googleClientId: String(process.env.GOOGLE_CLIENT_ID || "").trim(),
   requireHttps: bool(process.env.REQUIRE_HTTPS, false),

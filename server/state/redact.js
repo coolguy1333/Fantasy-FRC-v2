@@ -44,4 +44,14 @@ function restoreAdminOnlyDomains(currentState, incomingState, user) {
   return copy;
 }
 
-module.exports = { ADMIN_ONLY_DOMAINS, redactForNonAdmin, restoreAdminOnlyDomains };
+// A poll's patch, cut down the same way. Which codes someone may see depends on
+// their teams, so any change to teams resends their visible codes whole.
+const TEAM_DOMAINS = ["groups", "profileTeams", "teamAdmins", "teamInviteCodes"];
+function redactPatchForNonAdmin(patch, state, user) {
+  const out = { ...patch };
+  for (const domain of ADMIN_ONLY_DOMAINS) delete out[domain];
+  if (TEAM_DOMAINS.some((domain) => out[domain])) out.teamInviteCodes = { value: redactForNonAdmin(state, user).teamInviteCodes };
+  return out;
+}
+
+module.exports = { ADMIN_ONLY_DOMAINS, redactForNonAdmin, redactPatchForNonAdmin, restoreAdminOnlyDomains };

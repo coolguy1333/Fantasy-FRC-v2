@@ -1,9 +1,10 @@
 import { store, readGuestPicks, removeGuestPicks } from "../store.js";
 import { runtime, onEventChange } from "../runtime.js";
 import { confirmDialog, isLocked, teamNumbers, toast } from "../ui.js";
-import { findGameMatch, isPlayed } from "../scoring.js";
+import { findGameMatch, isMatchPickable, isPlayed } from "../scoring.js";
 
 const isOpen = (match) => Boolean(match) && !isPlayed(match) && !isLocked(match);
+const isOpenMatchPick = (match) => isOpen(match) && isMatchPickable(match);
 const teamsKnown = (match) => teamNumbers(match.alliances?.red).length > 0 || teamNumbers(match.alliances?.blue).length > 0;
 
 // Picks made as a guest at the event on screen that can still be made. Anything already
@@ -15,7 +16,7 @@ function eligiblePicks() {
   const me = store.profileId;
   const mine = store.state.predictionsByProfile[me] || {};
   const byKey = new Map(matches.map((m) => [m.key, m]));
-  const predictions = Object.entries(guest.predictions).filter(([key, p]) => p?.winner && isOpen(byKey.get(key)) && !mine[key]?.winner);
+  const predictions = Object.entries(guest.predictions).filter(([key, p]) => p?.winner && isOpenMatchPick(byKey.get(key)) && !mine[key]?.winner);
 
   const myBracket = store.state.bracketPicksByProfile[me] || {};
   const gameOpen = (key) => {

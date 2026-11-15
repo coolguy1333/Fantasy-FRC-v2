@@ -44,6 +44,11 @@ function scoreGuessPoints(guess, actual) {
   return 0;
 }
 
+// Match picks count for qualification (and pre-2023 playoff) matches. A 2023+
+// playoff game is picked in the bracket instead, so a match pick on it would
+// count the same game twice.
+export const isMatchPickable = (match) => match.comp_level !== "pm" && gameIdForMatch(match) === null;
+
 // byMatch[matchKey] explains what each graded pick earned, so the UI can show
 // "Correct, +1.5" on a finished match instead of leaving people to work it out.
 export function scorePredictions(matches, predictionsByMatch = {}) {
@@ -55,7 +60,7 @@ export function scorePredictions(matches, predictionsByMatch = {}) {
   const byMatch = {};
 
   const played = matches
-    .filter((m) => m.comp_level !== "pm" && matchWinner(m))
+    .filter((m) => isMatchPickable(m) && matchWinner(m))
     .sort((a, b) => (a.actual_time || a.time || 0) - (b.actual_time || b.time || 0));
 
   for (const match of played) {
@@ -87,7 +92,7 @@ export function scorePredictions(matches, predictionsByMatch = {}) {
     byMatch[match.key] = { correct: allianceCorrect, points: round1(total), pickPoints: allianceCorrect ? 1 : 0, streakBonus, scorePoints };
   }
 
-  const eventKeys = new Set(matches.map((m) => m.key));
+  const eventKeys = new Set(matches.filter(isMatchPickable).map((m) => m.key));
   const total = Object.entries(predictionsByMatch).filter(([key, p]) => eventKeys.has(key) && p?.winner).length;
 
   return {
@@ -165,7 +170,8 @@ export function scoreBracket(matches, picksByGame = {}, scoresByGame = {}) {
     byGame[gameId] = { correct, picked: Boolean(pick), points: round1(pickPoints + scorePoints), pickPoints, scorePoints, streakBonus: 0 };
   }
 
-  return { points: round1(points), correctPicks, gradedGames, byGame };
+  const picks = Object.values(picksByGame).filter(Boolean).length;
+  return { points: round1(points), correctPicks, gradedGames, picks, byGame };
 }
 
 // Everything the score tab and leaderboard need about one player at one event.
@@ -204,14 +210,22 @@ export function rankRows(rows) {
   });
 }
 
-// One row per player who has a profile or any picks (guest excluded), scored for one event.
+// Did this player take part in this event (a pick, a bracket pick or an admin adjustment)?
+export function playedEvent(totals) {
+  return totals.match.total > 0 || totals.bracket.picks > 0 || totals.adjustment !== 0;
+}
+
+// One row per player who took part in this event (guest excluded), scored for that event.
+// Someone who never picked here isn't "last with 0 points" - they just aren't in it.
 export function playerRows(state, matches, eventKey) {
   const ids = new Set([...Object.keys(state.profiles || {}), ...Object.keys(state.predictionsByProfile || {}), ...Object.keys(state.bracketPicksByProfile || {})]);
   ids.delete("guest");
-  return [...ids].map((id) => {
+  const rows = [];
+  for (const id of ids) {
     const totals = totalsFor(state, id, matches, eventKey);
-    return { id, name: state.profiles?.[id]?.name || "Player", teamId: state.profileTeams?.[id] || null, ...totals };
-  });
+    if (playedEvent(totals)) rows.push({ id, name: state.profiles?.[id]?.name || "Player", teamId: state.profileTeams?.[id] || null, ...totals });
+  }
+  return rows;
 }
 
 // Teams by total points, with size and average so a big team doesn't just win by being big.
@@ -224,4 +238,18 @@ export function teamRowsFrom(players, groups = {}) {
     teams[player.teamId].members += 1;
   }
   return Object.values(teams).map((t) => ({ ...t, points: round1(t.points), average: round1(t.points / t.members) }));
+}
+
+// How everyone picked one match (or bracket game, with domain bracketPicksByProfile and
+// key "<event>:<game>"). Only shown once it locks, so nobody can just follow the crowd.
+export function crowdPicks(state, key, domain = "predictionsByProfile") {
+  let red = 0;
+  let blue = 0;
+  for (const [id, picks] of Object.entries(state[domain] || {})) {
+    if (id === "guest") continue;
+    const pick = domain === "predictionsByProfile" ? picks?.[key]?.winner : picks?.[key];
+    if (pick === "red") red += 1;
+    else if (pick === "blue") blue += 1;
+  }
+  return { red, blue, total: red + blue };
 }
