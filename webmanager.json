@@ -20,6 +20,12 @@
       "required": false
     },
     {
+      "name": "BACKUP_KEEP_DAYS",
+      "description": "The app saves a copy of its database to /data/backups once a day. This is how many days of copies to keep. Set 0 to turn backups off.",
+      "default": "14",
+      "required": false
+    },
+    {
       "name": "REQUIRE_HTTPS",
       "description": "Reject plain-HTTP requests. Safe to leave on: the app always sits behind the platform's HTTPS proxy.",
       "default": "true",

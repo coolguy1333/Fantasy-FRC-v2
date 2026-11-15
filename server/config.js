@@ -60,6 +60,8 @@ module.exports = {
   tbaApiKey: String(process.env.TBA_API_KEY || "").trim(),
   tbaApiBase: "https://www.thebluealliance.com/api/v3",
   // How long a sign-in lasts. Sliding: active people are never signed out.
+  // Daily database copies kept in DATA_DIR/backups (0 turns backups off).
+  backupKeepDays: process.env.BACKUP_KEEP_DAYS === undefined || process.env.BACKUP_KEEP_DAYS === "" ? 14 : Math.max(0, Math.floor(Number(process.env.BACKUP_KEEP_DAYS) || 0)),
   sessionTtlMs: (positiveNumber(process.env.SESSION_TTL_DAYS) || 30) * 24 * 60 * 60 * 1000,
   googleClientId: String(process.env.GOOGLE_CLIENT_ID || "").trim(),
   requireHttps: bool(process.env.REQUIRE_HTTPS, false),

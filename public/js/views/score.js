@@ -1,7 +1,7 @@
 import { store } from "../store.js";
 import { runtime, onEventChange } from "../runtime.js";
-import { $, el, fill } from "../ui.js";
-import { playerRows, rankRows, totalsFor } from "../scoring.js";
+import { $, el, fill, matchLabel } from "../ui.js";
+import { isMatchPickable, isPlayed, playerRows, rankRows, totalsFor } from "../scoring.js";
 import { buildHowToPlay } from "./help.js";
 
 const tile = (label, value, sub, accent = false) =>
@@ -12,6 +12,27 @@ const tile = (label, value, sub, accent = false) =>
   ]);
 
 const signedOutRank = () => el("a", { href: "#", class: "score-sub link", onclick: (e) => (e.preventDefault(), document.querySelector(".auth-panel")?.scrollIntoView({ behavior: "smooth" })) }, "Sign in to be ranked");
+
+const RECENT = 6;
+const cap = (color) => (color === "red" ? "Red" : "Blue");
+
+// Your last few graded picks, newest first, in plain words.
+function recentResults(matches, predictions, byMatch) {
+  const rows = matches
+    .filter((m) => isMatchPickable(m) && isPlayed(m) && byMatch[m.key])
+    .sort((a, b) => (b.actual_time || b.time || 0) - (a.actual_time || a.time || 0))
+    .slice(0, RECENT)
+    .map((m) => {
+      const result = byMatch[m.key];
+      return el("div", { class: "pick-row" }, [
+        el("span", { class: "pick-row-label" }, matchLabel(m)),
+        el("span", { class: `pick-row-pick pick-${predictions[m.key].winner}` }, `You: ${cap(predictions[m.key].winner)}`),
+        el("span", { class: `pick-row-result result-text-${result.correct ? "good" : result.points ? "good" : "bad"}` }, result.points ? `+${result.points}` : "Missed")
+      ]);
+    });
+  if (!rows.length) return null;
+  return el("div", { class: "breakdown" }, [el("h4", {}, "Recent results"), el("div", { class: "pick-list" }, rows)]);
+}
 
 function render() {
   const host = $("scoreContent");
@@ -60,6 +81,7 @@ function render() {
       ...breakdown.map(([label, value]) => el("div", { class: "breakdown-row" }, [el("span", {}, label), el("strong", {}, String(value))])),
       el("div", { class: "breakdown-row muted" }, [el("span", {}, "Picks made at this event"), el("span", {}, String(match.total))])
     ]),
+    recentResults(event.matches, store.state.predictionsByProfile?.[store.profileId] || {}, match.byMatch),
     el("div", { class: "accuracy-wrap" }, [
       el("div", { class: "accuracy-bar-label" }, "Prediction accuracy"),
       el("div", { class: "accuracy-track", role: "img", "aria-label": `Accuracy ${match.accuracy ?? 0} percent` }, el("div", { class: "accuracy-fill", style: `width:${match.accuracy || 0}%` }))

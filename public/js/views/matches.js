@@ -306,6 +306,19 @@ function showMore(key, total, step) {
   );
 }
 
+// Scroll to an open match you haven't picked (showing more cards if it's further down).
+function jumpTo(match, openMatches) {
+  const index = openMatches.indexOf(match);
+  if (index >= shown.open) {
+    shown.open = index + 1;
+    renderNow();
+  }
+  const card = document.querySelector(`.match-row[data-match="${CSS.escape(match.key)}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.querySelector(".alliance-btn:not(:disabled)")?.focus({ preventScroll: true });
+}
+
 function summaryStrip(ctx, openMatches) {
   const { event } = runtime;
   const totals = totalsFor(store.state, store.profileId, event.matches, event.key);
@@ -317,6 +330,8 @@ function summaryStrip(ctx, openMatches) {
   }
   const picked = openMatches.filter((m) => ctx.predictions[m.key]?.winner).length;
   if (openMatches.length) chips.push(el("span", { class: "stat" }, [el("strong", {}, `${picked} of ${openMatches.length}`), " open matches picked"]));
+  const next = openMatches.find((m) => !ctx.predictions[m.key]?.winner);
+  if (next) chips.push(el("button", { type: "button", class: "secondary-btn next-unpicked", onclick: () => jumpTo(next, openMatches) }, "Next unpicked"));
   return el("div", { class: "summary-strip" }, chips);
 }
 

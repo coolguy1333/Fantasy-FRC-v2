@@ -5,6 +5,7 @@ const config = require("./config");
 const apiRoutes = require("./routes");
 const { db, peekState } = require("./db");
 const { purgeExpiredSessions } = require("./sessions");
+const { scheduleBackups } = require("./backup");
 const { SETUP_CODE, claimAvailable } = require("./setup");
 const { maskEmail } = require("./emails");
 const { securityHeaders, enforceTransport, enforceLocalApiOnly } = require("./security");
@@ -72,6 +73,7 @@ const server = app.listen(config.port, config.host, () => {
 
 purgeExpiredSessions();
 setInterval(purgeExpiredSessions, 60 * 60 * 1000).unref();
+scheduleBackups();
 
 // Stop cleanly on SIGTERM/SIGINT: stop accepting new connections, close the
 // database, then exit - so a host that restarts/redeploys the process

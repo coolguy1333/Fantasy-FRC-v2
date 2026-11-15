@@ -79,9 +79,10 @@ router.get("/runtime-config", (_req, res) => {
 // Liveness check for monitoring / the host's health probe - must stay
 // unauthenticated (docs/API.md documents it that way) and cheap, since a
 // probe hits it repeatedly with no credentials.
+const healthStmt = db.prepare("SELECT 1");
 router.get("/health", limiters.read, (_req, res) => {
   try {
-    db.prepare("SELECT 1").get();
+    healthStmt.get();
     res.json({ ok: true });
   } catch (err) {
     console.error("Health check: database unavailable:", err.message);

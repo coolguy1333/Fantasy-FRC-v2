@@ -44,6 +44,27 @@ in for 30 days; signing out revokes their session.
 
 To run it by hand: `docker build -t fantasyfrc . && docker run -p 8080:8080 -e PORT=8080 -e DATA_DIR=/data -v fantasyfrc-data:/data fantasyfrc`.
 
+## Features
+
+- **Match picks**: pick each qualification match's winner and, optionally, the
+  winning score. Picks lock 10 minutes before a match starts (checked by the
+  server). "Next unpicked" jumps to the next match you still need to pick, and
+  "Clear pick" undoes one.
+- **Playoff bracket**: pick every double-elimination game; later rounds are worth more.
+- **Crowd picks**: once a match locks, see how everyone else picked it.
+- **Leaderboards**: per event or for the whole season, for players, your team,
+  or teams against each other. Tap a player to see their stats and their picks on
+  matches that have locked (never open ones).
+- **My Score**: points, rank, accuracy, streaks and your recent results.
+- **Teams** with invite links, team admins, and site admins with a full admin console.
+- **Guest mode**: play without signing in; picks move to your account when you sign in.
+- **Light and dark themes** (follows your device; change it in the page footer).
+- **Built to run unattended**:
+  - Daily database backups, kept for 14 days.
+  - Keeps working through short outages of The Blue Alliance (TBA).
+  - Picks save as small changes rather than the whole database.
+  - Open tabs are told when a new version is deployed.
+
 ## About this project
 
 This is a from-scratch rewrite of the original app, aimed at being simple to
@@ -80,7 +101,9 @@ deploy and cheap to maintain in a homelab:
 | f2 | 7 |
 | f3 | 8 |
 
-Predictions and bracket picks lock 10 minutes before the match starts.
+Predictions and bracket picks lock 10 minutes before the match starts. For
+2023+ events, playoff games are picked (and scored) only in the bracket, so the
+same game never counts twice. The season leaderboard adds up each event's points.
 
 ## Deploying to a Proxmox LXC
 
@@ -124,7 +147,10 @@ Pulls latest git, reinstalls dependencies, restarts the service. Your data
 
 ### Backing up
 
-Just copy the database file:
+The app writes a copy of its database to `DATA_DIR/backups/` once a day
+(`fantasyfrc-YYYY-MM-DD.db`) and keeps the last 14 (`BACKUP_KEEP_DAYS` changes
+that; `0` turns it off). To restore one, stop the app and copy it over
+`fantasyfrc.db`. To take one by hand, just copy the database file:
 ```bash
 cp /opt/fantasyfrc/data/fantasyfrc.db ~/fantasyfrc-backup-$(date +%F).db
 ```
@@ -149,8 +175,13 @@ owned by the `fantasyfrc` user (`chown -R fantasyfrc:fantasyfrc /opt/fantasyfrc`
 npm install
 cp .env.example .env   # fill in TBA_API_KEY / GOOGLE_CLIENT_ID
 npm run dev
+npm run check          # syntax-check every server and browser file
 npm test               # server tests; no network or credentials needed
+npm run test:e2e       # browser tests (needs Playwright; skipped if it isn't installed)
 ```
+
+GitHub Actions (`.github/workflows/test.yml`) runs all of these, plus a Docker
+build and health check, on every pull request and push to `main`.
 
 Serves on `http://127.0.0.1:3000`.
 
@@ -168,7 +199,8 @@ Serves on `http://127.0.0.1:3000`.
 server/
   index.js       - app entrypoint, wires everything together
   config.js      - all env vars in one place
-  db.js          - SQLite open/read/write, corrupt-DB recovery
+  db.js          - SQLite open/read/write, in-memory copy + change log, corrupt-DB recovery
+  backup.js      - daily database backups with retention
   auth.js        - Google ID token verification + requireAuth (cookie or bearer)
   sessions.js    - 30-day sign-in sessions (hashed ids, HttpOnly cookie)
   security.js    - rate limits, CSP headers, same-origin check
@@ -179,6 +211,7 @@ server/
     authorize.js - who can write which part of shared state
     locks.js     - server-side prediction locking against live TBA data
     redact.js    - what non-admins (and non-members) must not see
+    patch.js     - small writes/reads: only the changed keys travel
 
 test/            - node:test suites; run with `npm test` (no network needed)
 
@@ -186,14 +219,16 @@ public/
   index.html, style.css
   js/
     main.js      - boot sequence, wires up views
-    store.js     - client state: guest (localStorage) vs signed-in (synced)
+    store.js     - client state: guest (localStorage) vs signed-in (synced by patches)
+    patch.js     - browser copy of server/state/patch.js
+    theme.js     - light/dark theme, applied before the first paint
     api.js       - thin fetch wrapper
     runtime.js   - server config + the event on screen
     scoring.js   - pure scoring, bracket mapping and ranking
     constants.js
     ui.js        - DOM helpers, dialogs, toasts
-    views/       - matches, bracket, cards, score, leaderboard, profile, guest, auth, help,
-                   admin (+ admin-players, admin-teams, admin-picks, admin-common)
+    views/       - matches, bracket, cards, score, leaderboard, player-card, profile, guest,
+                   auth, help, admin (+ admin-players, admin-teams, admin-picks, admin-common)
 ```
 
 ## Environment variables
@@ -212,4 +247,5 @@ public/
 | `TRUST_PROXY` | No | `false` | Only set `true` if a reverse proxy sits in front and sets `X-Forwarded-*` itself - otherwise those headers are client-controlled and this must stay `false` |
 | `SESSION_TTL_DAYS` | No | `30` | How long a sign-in lasts (renewed while in use) |
 | `PUBLIC_URL` | No | - | The site's public address; also accepted as a same-origin host (set by WebManager) |
+| `BACKUP_KEEP_DAYS` | No | `14` | Daily database backups to keep in `DATA_DIR/backups` (`0` turns them off) |
 | `LOCAL_API_ONLY` | No | `false` | Block non-loopback API access. Leave off behind a reverse proxy or in Docker - every request arrives from the proxy, so it would reject them all |
