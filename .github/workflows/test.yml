@@ -12,10 +12,10 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run check
@@ -24,21 +24,23 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
-      # Playwright isn't an app dependency; install it just for this job.
-      - run: npm install --no-save playwright@1.49.1
+      # Playwright isn't an app dependency; install it just for this job. Pinned to
+      # the version the tests are written against (older ones evaluate polling
+      # predicates as strings, which the app's CSP rightly blocks).
+      - run: npm install --no-save playwright@1.63.0
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
 
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: docker build -t fantasyfrc .
       - name: Container starts and answers its health check
         run: |

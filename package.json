@@ -4,7 +4,7 @@
   "private": true,
   "description": "Fantasy FRC - predict FRC match winners and scores. Express + better-sqlite3.",
   "main": "server/index.js",
-  "engines": { "node": ">=18" },
+  "engines": { "node": ">=22" },
   "scripts": {
     "start": "node server/index.js",
     "dev": "NODE_ENV=development node server/index.js",
